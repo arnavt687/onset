@@ -106,6 +106,23 @@ def _with(p: Patient, how: str) -> Patient:
     return Patient(p.id, p.name, p.phones, p.caregiver, p.sentence, how)
 
 
+def handle_from_metadata(meta: Mapping[str, Any] | None) -> str | None:
+    """The caller's phone or Apple ID from a call's job metadata, when Chert provides it.
+
+    `chert dev` does not today (its dispatch metadata is {"chert_call", "media"}; only BYOR
+    connectors receive `from`), so this is usually None and the line's default profile is used.
+    """
+    if not isinstance(meta, Mapping):
+        return None
+    for key in ("from", "caller", "from_handle", "remote_handle"):
+        v = meta.get(key)
+        if isinstance(v, Mapping):
+            v = v.get("value")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
 def mask(handle: str | None) -> str:
     """'+15551230001' -> '+1…01'. For logs and events; never log a full number."""
     if not handle:

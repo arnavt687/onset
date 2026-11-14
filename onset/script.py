@@ -88,6 +88,18 @@ CLOSE_UNCLEAR = Line(
     caption="I could not check clearly. Adding your caregiver. Please call 911 now.",
 )
 
+# Said when the caregiver opens the link and joins (they can see the caller).
+CAREGIVER_JOINED = Line(
+    say="Your caregiver has joined the call. Please still call 9 1 1.",
+    caption="Your caregiver has joined. Please call 911 now.",
+)
+
+# Said when the caregiver starts talking: from here the caller hears them through Onset.
+CAREGIVER_TALKING = Line(
+    say="You can talk to your caregiver now. Please still call 9 1 1.",
+    caption="Talking with your caregiver. Please call 911 now.",
+)
+
 CLOSE_NO_CHANGE = Line(
     say=(
         "I didn't notice any change from your usual check-in. "
@@ -123,7 +135,7 @@ PROGRESS = {
 
 ALL_LINES = [
     GREETING, FACE_NEUTRAL, FACE_SMILE, ARMS_RAISE, ARMS_HOLD, ARMS_DONE, ARMS_TIMEOUT,
-    DECIDING, CLOSE_ESCALATE, CLOSE_UNCLEAR, CLOSE_NO_CHANGE,
+    DECIDING, CLOSE_ESCALATE, CLOSE_UNCLEAR, CAREGIVER_JOINED, CAREGIVER_TALKING, CLOSE_NO_CHANGE,
     CLOSE_BASELINE_SAVED, CLOSE_BASELINE_FAILED,
 ]
 

@@ -49,7 +49,7 @@ REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))  # tools.record, when run from another directory
 load_dotenv(REPO / ".env.local")
 
-from onset import overlay, script  # noqa: E402
+from onset import caregiver, overlay, patients, script  # noqa: E402
 from onset.events import EventSink  # noqa: E402
 from onset.flow import CheckFlow  # noqa: E402
 from onset.voice import Speaker  # noqa: E402
@@ -112,6 +112,10 @@ def bridge_ready(metadata: str | None) -> bool:
 
 def is_caller(p: rtc.RemoteParticipant) -> bool:
     return p.identity.startswith("chert-bridge-")
+
+
+def is_caregiver(p: rtc.RemoteParticipant) -> bool:
+    return p.identity.startswith(caregiver.WATCH_PREFIX) and not p.identity.startswith(caregiver.TALK_PREFIX)
 
 
 _ROTATE = {
@@ -271,6 +275,123 @@ class CallMedia:
         await asyncio.gather(*self._tasks, return_exceptions=True)
 
 
+class Escalation:
+    """agent.py's side of ESCALATE / UNCLEAR (onset/caregiver.py has the rules): mint the
+    caregiver's link, listen in their side room, relay their voice and camera to the caller,
+    show them the summary, and text them. Never raises into the call."""
+
+    def __init__(self, ctx: JobContext, session: AgentSession, sink: EventSink, run_id: str,
+                 patient: patients.Patient) -> None:
+        self.ctx, self.session, self.sink, self.run_id, self.patient = ctx, session, sink, run_id, patient
+        self.cfg = caregiver.EscalationConfig.from_env()
+        self.flow: CheckFlow | None = None
+        self.relay = None
+        self.summary = ""
+        self.outcome = ""
+        self._tasks: set[asyncio.Task] = set()
+
+    def _spawn(self, coro) -> None:
+        t = asyncio.create_task(coro)
+        self._tasks.add(t)
+        t.add_done_callback(self._tasks.discard)
+
+    async def _attrs(self, **attrs: str) -> None:
+        try:
+            await self.ctx.room.local_participant.set_attributes({f"onset.{k}": v for k, v in attrs.items()})
+        except Exception as e:  # noqa: BLE001 - the page also gets the data packet
+            log.warning("[onset] could not set participant attributes: %s", type(e).__name__)
+
+    async def publish_summary(self) -> None:
+        if not self.summary:
+            return
+        payload = json.dumps({"type": "summary", "text": self.summary, "outcome": self.outcome,
+                              "patient": caregiver.first_name(self.patient.name)})
+        try:
+            await self.ctx.room.local_participant.publish_data(payload, reliable=True, topic="onset")
+        except Exception as e:  # noqa: BLE001
+            log.warning("[onset] could not send the summary to the caregiver: %s", type(e).__name__)
+
+    async def run(self, decision, summary: str) -> dict:
+        flow = self.flow
+        self.summary, self.outcome = summary, decision.outcome.value
+        first = caregiver.first_name(self.patient.name)
+        await self._attrs(outcome=self.outcome, summary=summary, relay="off", patient=first)
+        invite = None
+        if self.cfg.join == "link":
+            try:
+                invite = caregiver.make_invite(
+                    self.ctx.room.name, self.run_id, livekit_url=os.environ.get("LIVEKIT_URL", ""),
+                    api_key=os.environ.get("LIVEKIT_API_KEY", ""), api_secret=os.environ.get("LIVEKIT_API_SECRET", ""),
+                    cfg=self.cfg, patient_first=first)
+            except Exception as e:  # noqa: BLE001 - the text still goes out, without a link
+                log.warning("[onset] no caregiver link: %s", e)
+                if flow is not None:
+                    flow.caregiver_update("failed", f"no link: {type(e).__name__}")
+        if invite is not None:
+            if invite.side_room:  # listen before anyone can have the link
+                await self._start_relay(invite.side_room)
+            if flow is not None:
+                flow.caregiver_update("invited", "join link: " + (
+                    "caregiver page" if invite.kind == "page" else "LiveKit Meet, watch only"))
+            self.sink.private_file("caregiver_link.txt", invite.link)  # the dashboard's demo button
+        return await caregiver.notify_caregiver(
+            sink=flow if flow is not None else self.sink, summary=summary,
+            caregiver_phone=self.patient.caregiver.phone, caregiver_name=self.patient.caregiver.name,
+            patient_name=self.patient.name, invite=invite, talk=self.cfg.talk)
+
+    async def _start_relay(self, side_room: str) -> None:
+        from onset.relay import SideRoomRelay
+
+        try:
+            token = caregiver.relay_token(side_room, f"{caregiver.RELAY_PREFIX}{self.run_id[:36]}",
+                                          api_key=os.environ["LIVEKIT_API_KEY"],
+                                          api_secret=os.environ["LIVEKIT_API_SECRET"], ttl_s=self.cfg.ttl_s + 600)
+        except Exception as e:  # noqa: BLE001
+            log.warning("[onset] no relay token: %s", type(e).__name__)
+            return
+        flow = self.flow
+
+        def status(s: str, detail: str) -> None:
+            if flow is not None:
+                flow.caregiver_update(s, detail)
+            if s == "left":
+                self._spawn(self._attrs(relay="off"))
+
+        self.relay = SideRoomRelay(url=os.environ["LIVEKIT_URL"], token=token, on_audio_track=self._relay_audio,
+                                   on_frame=(flow.caregiver_frame if flow is not None else (lambda *_: None)),
+                                   on_status=status, clock=time.monotonic)
+        await self.relay.start()
+
+    def _relay_audio(self, track: rtc.RemoteAudioTrack) -> None:
+        """Play the caregiver's microphone through Onset's one audio track (Chert's rule)."""
+
+        async def go() -> None:
+            await self._attrs(relay="on")  # the caregiver page stops playing Onset's audio (no echo)
+            stream = rtc.AudioStream(track, sample_rate=24000, num_channels=1)
+
+            async def frames():
+                async for ev in stream:
+                    yield ev.frame
+
+            try:
+                handle = self.session.say(" ", audio=frames(), allow_interruptions=False, add_to_chat_ctx=False)
+                await handle.wait_for_playout()
+            except Exception:  # noqa: BLE001
+                log.exception("[onset] caregiver relay failed")
+            finally:
+                await stream.aclose()
+                await self._attrs(relay="off")
+
+        self._spawn(go())
+
+    async def aclose(self) -> None:
+        for t in list(self._tasks):
+            t.cancel()
+        await asyncio.gather(*self._tasks, return_exceptions=True)
+        if self.relay is not None:
+            await self.relay.aclose()
+
+
 @server.rtc_session(agent_name=AGENT_NAME)
 async def entry(ctx: JobContext) -> None:
     meta = json.loads(ctx.job.metadata or "{}") if ctx.job.metadata else {}
@@ -283,12 +404,15 @@ async def entry(ctx: JobContext) -> None:
     from onset.decide import load_baseline
     from onset.speech import SENTENCES
 
+    patient = patients.lookup(patients.handle_from_metadata(meta))
+    log.info("[onset] patient profile %s (matched by %s)", patient.id, patient.matched_by)
     try:
-        b = load_baseline(os.environ.get("ONSET_PATIENT_ID", "demo"))
+        b = None if patient.anonymous else load_baseline(patient.id)
     except Exception:  # noqa: BLE001
         b = None
     warm_speaker = Speaker(tts)
-    warm = asyncio.create_task(warm_speaker.warm(script.all_spoken(b.sentence if b else SENTENCES[0])))
+    warm = asyncio.create_task(warm_speaker.warm(script.all_spoken(
+        b.sentence if b else (patient.sentence or SENTENCES[0]))))
 
     try:
         caller = await ctx.wait_for_participant()
@@ -329,8 +453,13 @@ async def entry(ctx: JobContext) -> None:
         await handle.wait_for_playout()
 
     speaker = Speaker(tts, sink=sink, play=play)
+    esc = Escalation(ctx, session, sink, run_id, patient)
     flow = CheckFlow(sink=sink, say=speaker.say, recorder=recorder, run_id=run_id, source="call",
-                     out_size=(OUT_W, OUT_H))
+                     out_size=(OUT_W, OUT_H), patient_id=patient.id,
+                     patient_name=patient.name or None, sentence=patient.sentence,
+                     caregiver_phone=patient.caregiver.phone, caregiver_name=patient.caregiver.name,
+                     escalate=esc.run, save_baseline=not patient.anonymous)
+    esc.flow = flow
     media = CallMedia(source, flow)
 
     evaluating = {"task": None}
@@ -354,6 +483,19 @@ async def entry(ctx: JobContext) -> None:
             media.spawn(media.read_caller_audio(track))
 
     ctx.room.on("track_subscribed", on_track)
+
+    def on_joined(p: rtc.RemoteParticipant) -> None:
+        if is_caregiver(p):
+            log.info("[onset] the caregiver joined the call (watching)")
+            flow.caregiver_update("joined")
+            media.spawn(esc.publish_summary())
+
+    def on_left(p: rtc.RemoteParticipant) -> None:
+        if is_caregiver(p) and flow.caregiver_status in ("joined", "invited"):
+            flow.caregiver_update("left", "the caregiver closed the call page")
+
+    ctx.room.on("participant_connected", on_joined)
+    ctx.room.on("participant_disconnected", on_left)
     ctx.room.on("local_track_subscribed", lambda pub: log.info(
         "[onset] the caller side subscribed to our %s track", rtc.TrackKind.Name(pub.kind) if hasattr(pub, "kind") else pub))
     for pub in caller.track_publications.values():
@@ -362,7 +504,9 @@ async def entry(ctx: JobContext) -> None:
 
     async def shutdown(reason: str = "") -> None:
         flow.abort("caller left" if not flow.done else "complete")
-        await flow.wait_background(timeout=10)
+        # An escalation keeps going after the caller hangs up: the caregiver still gets the text.
+        await flow.wait_background(timeout=45)
+        await esc.aclose()
         await speaker.aclose()
         await media.aclose()
         if recorder is not None:
