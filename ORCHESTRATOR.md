@@ -20,9 +20,13 @@ onset-chert-api (PRs #10–#15, all merged into `main` on 14 Nov 2026).
 1. [x] Advisor pathway from Fable 5.2 (caption-first flow; dashboard; record real calls early; replay mode)
 2. [x] Chert voice investigator session started (owns the live line until it says the line is free)
 3. [x] Review and merge PRs #10–#15 (278 tests pass on main)
-4. [ ] Piece 5: scripted call flow, caption-first overlay (every instruction, countdown and result on the video)
-5. [ ] Laptop demo dashboard (caller video with landmarks, live numbers vs baseline, decision, caregiver text; can speak the agent's lines)
-6. [ ] Replay mode: run the same pipeline from a recorded call
+4. [ ] Piece 5: scripted call flow, caption-first overlay (every instruction, countdown and result on the video) — subagent on branch `piece/flow` (worktree `~/onset-wt/flow`)
+5. [ ] Laptop demo dashboard + `tools/demo.sh` + `docs/rehearsal.md` — subagent on branch `piece/dashboard`
+6. [ ] Replay mode: run the same pipeline from a recorded call — `tools/replay_flow.py` on `piece/flow`
+   - Demo write-ups (run-of-show, deck text, Devpost, video plan, architecture, safety) — subagent on branch `piece/demo-docs`
+   - Code review of merged pieces — subagent, report only
+   - CI fixed on main (MediaPipe needs libegl1/libgles2 on the runner)
+   - Event stream contract: `onset/events.py` (runs/live/events.jsonl, frame.jpg, audio/)
 7. [ ] Real calls with the user: baseline call + acted "change" call, recorded (needs the line back from chert-voice)
 8. [ ] Threshold sanity check on the real recordings
 9. [ ] Caregiver iMessage: real send once the user creates a Chert project API key and the caregiver phone has texted the line
