@@ -210,6 +210,7 @@ class CheckFlow:
         self._escalate_fn = escalate  # agent.py: caregiver link + relay + text; None: text only
         self.save_baseline = save_baseline  # False for an unidentified caller
         self.caregiver_status = ""  # "" | invited | joined | talking | left
+        self.caller_gone = False  # set by hangup(): no one to invite the caregiver to
         self._cg_frame: tuple[float, np.ndarray] | None = None  # (t, rgb) caregiver camera for PiP
         self.recorder = recorder
         self.source, self.run_id = source, run_id
@@ -549,7 +550,7 @@ class CheckFlow:
         if self.arms is None:
             self.arms = _no_response("arms", reason)
             self._emit("result", check="arms", quality=self.arms.quality, data=self.arms)
-        if self.speech is None and (self._measure_t is None or self.state != "sentence"):
+        if self.speech is None and (self._measure_t is None or self.state != "sentence" or self.caller_gone):
             self.speech = _no_response("speech", reason)
         self._rec_window = None
         self._to_deciding(t)
@@ -713,6 +714,24 @@ class CheckFlow:
                     m.close()
                 except Exception:  # noqa: BLE001
                     pass
+
+    MEASURING = ("face_neutral", "face_smile", "arms_wait", "arms_hold", "sentence")
+
+    def hangup(self, t: float) -> bool:
+        """The caller hung up. Mid-check (after the greeting, before the decision), the rest
+        of the check counts as not done and Onset still decides, which is then UNCLEAR at
+        least, so the caregiver hears that the check-in ended early (ONSET_NOTIFY_ON_HANGUP=0
+        turns this off). Returns True when a decision is now due (call `evaluate()`)."""
+        with self._lock:
+            self.caller_gone = True
+            if self.done or self.needs_evaluation or self.state not in self.MEASURING:
+                return self.needs_evaluation
+            if os.environ.get("ONSET_NOTIFY_ON_HANGUP", "1").strip() == "0":
+                return False
+            log.info("[onset] the caller hung up during %s: deciding with what was measured", self.state)
+            self._emit("hangup", step=self.state)
+            self._finish_measuring(t, "the call ended before the check finished")
+            return True
 
     def abort(self, reason: str) -> None:
         """The caller left mid-check."""
