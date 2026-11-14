@@ -11,6 +11,7 @@ The orchestrator keeps this file current.
 |---|---|---|
 | local_d6306b8b-9726-404e-a561-955849962a28 | Orchestrator (main session) | yes |
 | local_e7ebf3e6-c8ac-4d27-923e-74acfa86c28d | chert-voice: why callers hear no agent audio | yes |
+| local_0053261f-bc4f-46be-a326-8055b2809ecc | polish-pizzazz: cinematic HTML deck with 3D + live demo, polish of overlay, dashboard, README, video assets (branch `polish/pizzazz`) | yes |
 
 Finished, no longer watched: onset-face, onset-arms, onset-speech, onset-decide, onset-harness,
 onset-chert-api (PRs #10–#15, all merged into `main` on 14 Nov 2026).
