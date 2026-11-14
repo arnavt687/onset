@@ -421,3 +421,118 @@ def test_draw_on_letterboxed_rgba(mesh):
         meter.draw(out, live={"step": "smile"})
         assert out[..., :3].any()
         assert meter._live.get("lift_right") is not None
+
+
+# --------------------------------------------------------------------------- review fixes
+
+
+class StubLandmarker:
+    """Stands in for MediaPipe: plan(i) -> "fail" | None (no face) | landmark array (pixels)."""
+
+    def __init__(self, plan):
+        self.plan = plan
+        self.calls = 0
+        self.timestamps: list[int] = []
+
+    def detect_for_video(self, image, ts):
+        from types import SimpleNamespace
+
+        i = self.calls
+        self.calls += 1
+        self.timestamps.append(ts)
+        what = self.plan(i)
+        if isinstance(what, str):
+            raise RuntimeError("landmarker crashed")
+        if what is None:
+            return SimpleNamespace(face_landmarks=[])
+        lm = [SimpleNamespace(x=p[0] / W, y=p[1] / H, z=p[2] / W) for p in what]
+        return SimpleNamespace(face_landmarks=[lm])
+
+    def close(self):
+        pass
+
+
+GREY = np.full((H, W, 3), 120, np.uint8)
+N_NEUTRAL, N_SMILE = 30, 45
+SMILE = ramp(0.12, 0.12)
+
+
+def _pts(i):
+    return synth_pts() if i < N_NEUTRAL else synth_pts(*SMILE(i - N_NEUTRAL))
+
+
+def _feed(meter, t0=0.0):
+    for k in range(N_NEUTRAL):
+        meter.add_neutral(Frame(rgb=GREY, t=t0 + k / 15))
+    for k in range(N_SMILE):
+        meter.add_smile(Frame(rgb=GREY, t=t0 + k / 15))
+
+
+@pytest.fixture
+def mp_module():
+    return pytest.importorskip("mediapipe")
+
+
+def test_stub_landmarker_gives_ok_when_nothing_fails(mp_module):
+    meter = F.FaceMeter(landmarker=StubLandmarker(_pts))
+    _feed(meter)
+    r = meter.result()
+    assert r.quality is Quality.OK, r.detail
+    assert r.detail["errors"] == 0
+
+
+def test_failed_frames_count_against_the_face_found_fraction(mp_module):
+    # Fix 12: 45% of frames crash, 20% have no face: a face is seen in only 35% of frames.
+    def plan(i):
+        k = i % 20
+        return "fail" if k < 9 else (None if k < 13 else _pts(i))
+
+    meter = F.FaceMeter(landmarker=StubLandmarker(plan))
+    _feed(meter)
+    r = meter.result()
+    assert r.quality is not Quality.OK, r.detail
+    assert r.quality is Quality.NO_SUBJECT
+    assert r.detail["failed_frames"] == r.detail["errors"] > 0
+    assert r.detail["face_found_fraction"] < F.MIN_FACE_FRACTION
+
+
+def test_evaluate_counts_failed_frames():
+    neutral = obs_series(30, seed=1)
+    smile = obs_series(45, lifts=ramp(0.12, 0.12), seed=2)
+    assert F.evaluate(neutral, smile).quality is Quality.OK
+    r = F.evaluate(neutral, smile, failed_frames=80)
+    assert r.quality is Quality.NO_SUBJECT
+    assert r.detail["face_found_fraction"] == pytest.approx(75 / 155, abs=1e-3)
+
+
+def test_landmarker_failing_on_most_frames_is_error(mp_module):
+    meter = F.FaceMeter(landmarker=StubLandmarker(lambda i: "fail" if i % 3 else _pts(i)))
+    _feed(meter)
+    r = meter.result()
+    assert r.quality is Quality.ERROR
+    assert r.detail["errors"] == 50
+
+
+def test_reset_clears_the_step_and_keeps_timestamps_increasing(mp_module):
+    # Fix 11: the flow re-prompts the smile step with the same meter; Frame.t restarts at 0.
+    stub = StubLandmarker(lambda i: "fail" if i < N_NEUTRAL + N_SMILE else _pts(i - N_NEUTRAL - N_SMILE))
+    meter = F.FaceMeter(landmarker=stub)
+    _feed(meter)
+    assert meter.result().quality is Quality.ERROR  # first attempt: every frame failed
+    first = list(stub.timestamps)
+    meter.reset()
+    assert meter.neutral == [] and meter.smile == [] and meter._rest is None and meter._live == {}
+    assert meter._last is None and meter._n_errors == 0
+    _feed(meter)  # second attempt, Frame.t from 0 again
+    ts = stub.timestamps
+    assert all(b > a for a, b in zip(ts, ts[1:])), "MediaPipe needs strictly increasing timestamps"
+    assert ts[len(first)] > first[-1]
+    # Frame spacing is kept after the reset (not squashed to 1 ms steps).
+    assert ts[len(first) + 1] - ts[len(first)] == pytest.approx(1000 / 15, abs=1)
+    r = meter.result()
+    assert r.quality is Quality.OK, r.detail
+    assert r.detail["errors"] == 0 and r.frames_used == N_NEUTRAL + N_SMILE
+
+
+def test_reset_is_documented():
+    assert "reset()" in F.__doc__ and F.FaceMeter.reset.__doc__
