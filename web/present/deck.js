@@ -265,7 +265,7 @@ const COMMANDS = [
   [/\b(play (it|that) again|replay|show (it|that) again)\b/, 'Replay', () => { if (inScene('escalate')) { escT0 = performance.now(); escHold = -1; } }],
   [/\b(stop listening|voice off)\b/, 'Voice off', () => setVoice(false)],
 ];
-const voice = { on: false, rec: null, fired: [], lastAt: 0, flash: 0, stream: null, track: null, ctx: null, analyser: null, buf: null,
+const voice = { on: false, rec: null, running: false, endedAt: 0, fired: [], lastAt: 0, flash: 0, stream: null, track: null, ctx: null, analyser: null, buf: null,
   deviceId: store.get('onset.mic') || '', level: 0, loudAt: 0, startedAt: 0,
   // newer Chrome can be handed a microphone track; older ones always use the browser's default
   canRoute: !!SR && 'processLocally' in SR.prototype };
@@ -337,6 +337,9 @@ async function listMics() {
   sel.value = voice.deviceId && [...sel.options].some(o => o.value === voice.deviceId) ? voice.deviceId : '';
   const label = mics.find(d => d.deviceId === using)?.label || voice.track?.label || '';
   $('#voice-using').textContent = label ? `Listening on: ${label}` : '';
+  // Windows puts Bluetooth earbuds in call mode while their microphone is open: sound turns
+  // low-quality (a hiss) and their buttons stop being media buttons, so the clicker stops.
+  $('#voice-earbuds').hidden = !(voice.on && /airpods|hands-free|headset|buds|bluetooth/i.test(label));
   $('#voice-route').hidden = voice.canRoute || !voice.deviceId;
 }
 function startRec() {
@@ -344,14 +347,18 @@ function startRec() {
     const rec = new SR(); voice.rec = rec;
     rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 4;
     rec.onresult = e => { for (let i = e.resultIndex; i < e.results.length; i++) hear(Array.from(e.results[i], a => a.transcript), i, e.results[i].isFinal); };
-    rec.onstart = () => { voice.fired = []; };
+    rec.onstart = () => { voice.running = true; voice.fired = []; };
     rec.onerror = e => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') voiceError('Microphone blocked: allow it, then press V');
       else if (e.error === 'network') voiceError('Voice needs an internet connection');
       else if (e.error === 'audio-capture') voiceError('No sound from that microphone');
     };
-    rec.onend = () => { if (voice.on) setTimeout(startRec, 200); }; // the browser stops after a silence
+    // the browser stops after a silence: start again, but only on the chosen microphone. While
+    // that microphone is still opening (track is null) wait for openMic; starting now would
+    // listen on the browser's default microphone instead, with the meter showing the chosen one.
+    rec.onend = () => { voice.running = false; voice.endedAt = performance.now(); if (voice.on && voice.track) setTimeout(startRec, 200); };
   }
+  if (voice.running) return;
   try { if (voice.canRoute && voice.track) voice.rec.start(voice.track); else voice.rec.start(); }
   catch (err) { if (err.name !== 'InvalidStateError') { try { voice.rec.start(); } catch { /* already running */ } } }
 }
@@ -360,7 +367,12 @@ function voiceError(msg) {
   voiceBtn.classList.remove('on'); voiceBtn.classList.add('err'); voiceBtn.setAttribute('aria-pressed', 'false');
   voiceText.textContent = msg; $('#voice-toggle').textContent = 'Turn voice on'; $('#voice-hint').textContent = msg;
 }
-async function restartVoice() { if (!voice.on) return; try { voice.rec?.abort(); } catch { /* not started */ } try { await openMic(); } catch { return voiceError('Microphone blocked: allow it, then press V'); } }
+async function restartVoice() {
+  if (!voice.on) return;
+  try { voice.rec?.abort(); } catch { /* not started */ }
+  try { await openMic(); } catch { return voiceError('Microphone blocked: allow it, then press V'); }
+  if (voice.on) startRec();
+}
 async function setVoice(on) {
   voiceBtn.classList.remove('err', 'heard'); $('#voice-hint').textContent = '';
   if (!SR) return voiceError('Voice needs Chrome or Edge');
@@ -373,6 +385,7 @@ async function setVoice(on) {
   if (voice.on) startRec();
 }
 function voiceTick(now) { // the level meter, and a nudge when the microphone is silent
+  if (voice.on && voice.track && !voice.running && now - (voice.endedAt || 0) > 1500) { voice.endedAt = now; startRec(); } // never left stopped
   if (!voice.analyser) { voiceBtn.style.setProperty('--lvl', 0); return; }
   voice.analyser.getFloatTimeDomainData(voice.buf);
   let s = 0; for (let i = 0; i < voice.buf.length; i++) s += voice.buf[i] * voice.buf[i];
@@ -394,8 +407,8 @@ function startClicker() {
   const str = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
   str(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
   dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); str(36, 'data'); dv.setUint32(40, n * 2, true);
-  for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, (Math.random() * 5 - 2.5) | 0, true); // inaudible, but not digital silence
-  const a = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }))); a.loop = true; a.volume = .25; clicker.audio = a;
+  for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, i % 2 ? 1 : -1, true); // one step either side of zero: not digital silence, not hearable
+  const a = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }))); a.loop = true; a.volume = .02; clicker.audio = a;
   const keep = () => a.play().catch(() => { /* needs a click first */ });
   const press = kind => { keep(); fire(kind === 'back' ? 'Back' : 'Next', kind === 'back' ? back : next, 'Button press'); };
   a.addEventListener('pause', () => { if (clicker.on) setTimeout(keep, 50); });

@@ -78,6 +78,20 @@ microphone is not picking you up.
 - On Windows the AirPods' microphone is phone-call quality, so recognition is less accurate than
   with the laptop's. Near-misses such as "next slight" or "necks slide" still count.
 
+### AirPods on Windows: microphone or clicker, not both
+
+Windows uses Bluetooth earbuds in one of two modes. While their **microphone** is open they are in
+call mode: the sound in them turns low-quality (a faint hiss), and a press on them is a call
+button, not a media button, so it no longer changes slides. So choose:
+
+- **AirPods as the clicker, laptop microphone for voice** (works for two people, one AirPod each):
+  leave the microphone on the laptop's in the panel.
+- **AirPods as the microphone** (one person): pick "Headset (AirPods ... Hands-Free)" in the
+  panel. Voice works; the press does not.
+
+The panel says so when the earbuds are the microphone. Keep the presentation open in **one tab
+only**: the buttons go to whichever tab or app played sound last.
+
 ### AirPod press as a clicker
 
 With the AirPods connected to this computer for sound, a press on either one moves the deck, voice
