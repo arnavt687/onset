@@ -5,7 +5,7 @@ The orchestrator keeps this file current.
 
 **Project status:** IN PROGRESS   <!-- the resume job stops nudging only when this says COMPLETE -->
 
-**Waiting on user:** no (sessions below are working; user later: YouTube upload of v2, Devpost submit)   <!-- when "yes", the resume job leaves the orchestrator alone -->
+**Waiting on user:** no (sessions below are working). USER APPROVED (14 Nov): orchestrator uploads video v2 to the user's YouTube as UNLISTED, puts the link in Devpost, makes sure satvikranga60@gmail.com is on the team. Do NOT click Submit; the user submits.   <!-- when "yes", the resume job leaves the orchestrator alone -->
 
 ## Sessions the resume job watches
 

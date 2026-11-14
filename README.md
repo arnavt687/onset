@@ -30,6 +30,11 @@ unclear tells them to call 911 now and texts a caregiver.
 | Change | "Change noticed. Adding your caregiver to this call. Please call 911 now." | joined to the call + iMessage: what was noticed |
 | Unclear | "I could not check clearly. Adding your caregiver. Please call 911 now." | joined to the call + iMessage: what could not be checked |
 
+If the camera cannot see the face or both arms, Onset first says how to fix the picture
+("I can't see your left hand. Move back so both hands show.") and runs that step again, up to
+twice. Only if it still cannot see them is the result Unclear. An arm that drops or is never
+raised is a finding, never a reason to retry ([details](docs/thresholds.md#framing-retries)).
+
 ## How it works
 
 ![Architecture: FaceTime, Chert, LiveKit, the Onset agent, three measurements, fixed rules, 911 and the caregiver text](docs/demo/architecture.svg)
@@ -53,18 +58,19 @@ issue on Chert's side).
 |---|---|---|
 | ![captions](docs/demo/screenshots/polish/overlay-captions-640x360.jpg) | ![dashboard](docs/demo/screenshots/polish/dashboard-escalate.jpg) | ![deck](docs/demo/screenshots/polish/deck-07-how-it-works.jpg) |
 
-## Run it (WSL Ubuntu)
+## Run it (Linux, WSL Ubuntu or macOS)
+
+**Run it on your own Chert line: [docs/run-on-your-chert-line.md](docs/run-on-your-chert-line.md)**
+(prerequisites, every `.env.local` setting, what each check means, troubleshooting).
 
 ```bash
-cd ~/onset
-~/.venvs/uv/bin/uv venv --python 3.12 .venv
-~/.venvs/uv/bin/uv pip install --python .venv/bin/python -r requirements.txt
-cp .env.example .env.local   # then fill in your keys privately
-tools/setup-shared.sh        # MediaPipe models into ~/onset/models
+tools/setup.sh               # Python 3.12 .venv + requirements, MediaPipe models, Node/Chert CLI, .env.local
+#                              then fill in .env.local privately and run: tools/chert.sh login
+tools/demo.sh --check        # tools/doctor.py: keys, voice, models, LiveKit, the line's audio_ready, clock
 ```
 
 ```bash
-tools/demo.sh                       # demo day: checks, then agent + chert dev + dashboard
+tools/demo.sh                       # checks (stops on FAIL), then agent + chert dev + dashboard
 .venv/bin/python agent.py start     # or by hand, terminal 1: the agent
 tools/chert.sh dev                  # terminal 2: connects it to the Chert line
 tools/stop.sh                       # stops both (Ctrl+C releases the line)
@@ -73,6 +79,39 @@ tools/stop.sh                       # stops both (Ctrl+C releases the line)
 The dashboard is at http://localhost:8765 (`tools/dashboard.py`); the pitch deck, with a
 browser demo of the three measurements, is `tools/pitch.sh` → http://localhost:8770
 ([web/pitch/README.md](web/pitch/README.md)).
+
+## Longitudinal tracking
+
+Every check-in is archived on this machine when the call ends (`onset/events.py`):
+`runs/<run_id>/events.jsonl` holds each step's metrics and the decision, next to the last
+annotated frame and the agent's spoken lines. The caller's own video and audio are kept
+only with `ONSET_RECORD=1` (`recordings/<run_id>/`). `runs/`, `recordings/` and `baselines/`
+are gitignored and never leave the machine.
+
+`onset/history.py` reads those archives after the fact (nothing in the call flow changes) and
+lines up one person's check-ins over a rolling 90-day window from the first one:
+
+- per check-in: date, outcome, smile asymmetry, arm drift left / right / difference, word error
+  rate, words per minute, longest pause, and any step that was not measured cleanly;
+- per measurement: least-squares slope, change against the baseline, last 7 days against the
+  7 days before, and how many check-ins reached the change threshold from `onset/decide.py`;
+- a **gradual decline** flag when a measurement moves steadily toward its threshold although
+  no single check-in reached it (rules in [docs/thresholds.md](docs/thresholds.md#longitudinal-trends)).
+
+Unreadable or unfinished archives are skipped and counted, never fatal.
+
+```bash
+.venv/bin/python tools/demo_history.py                                  # 14 synthetic daily check-ins
+.venv/bin/python tools/history_report.py --patient demo-patient --out history.html   # care-team summary
+.venv/bin/python tools/history_report.py --patient demo-patient --json  # the same as JSON
+```
+
+The report is one self-contained HTML file (owner-only on disk): a plain-language summary,
+the trend flags, a sparkline per measurement with its baseline and threshold, and a table of
+check-ins. It describes measurements only and never names a condition. The dashboard's
+**Trend** button shows the same sparklines for the person on the current call (or open it
+with `?patient=<id>&trend=1`), from `GET /api/history?patient=<id>`. Sending the report to a
+care team is not automated yet.
 
 ## Test without FaceTime
 

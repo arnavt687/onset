@@ -30,8 +30,8 @@ AA = cv2.LINE_AA
 # Same sentence as the dashboard run (tools/demo_events.py SENTENCE).
 SENTENCE = SENTENCES[1]
 
-# Shown while the step is re-run when the arms or face are out of frame (piece/framing).
-REFRAME_ARMS = "I can't see both of your arms. Please move back so your hands are in the picture."
+# Arms framing problems (onset/script.py ARMS_FRAMING) drawn with the figure too close to the phone.
+ARMS_CLOSE = {"both_hands", "left_hand", "right_hand"}
 
 
 def _background() -> np.ndarray:
@@ -123,21 +123,28 @@ def main() -> None:
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "runs" / "caption-samples"
     out.mkdir(parents=True, exist_ok=True)
     s = SENTENCE
-    reframe = script.Line(say=REFRAME_ARMS, caption=REFRAME_ARMS)
     cases = [
         ("greet", script.GREETING, "bottom", None, 0.6, "neutral"),
         ("face_neutral", script.FACE_NEUTRAL, "top", (1, "Smile"), 0.5, "neutral"),
         ("face_smile", script.FACE_SMILE, "top", (1, "Smile"), 0.3, "smile"),
         ("arms_wait", script.ARMS_RAISE, "bottom", (2, "Arms"), None, "arms"),
         ("arms_hold", script.ARMS_HOLD, "bottom", (2, "Arms"), 0.7, "arms"),
-        ("arms_reframe", reframe, "bottom", (2, "Arms"), None, "arms_close"),
+        ("arms_restart", script.ARMS_RESTART, "bottom", (2, "Arms"), None, "arms"),
         ("sentence_lead", script.sentence_prompt(s), "bottom", (3, "Sentence"), 0.5, "neutral"),
         ("sentence_go", script.sentence_go(s), "bottom", (3, "Sentence"), 0.8, "speak"),
         ("close_escalate", script.CLOSE_ESCALATE, "bottom", None, None, "neutral"),
         ("close_unclear", script.CLOSE_UNCLEAR, "bottom", None, None, "neutral"),
         ("close_no_change", script.CLOSE_NO_CHANGE, "bottom", None, None, "neutral"),
         ("close_baseline", script.CLOSE_BASELINE_SAVED, "bottom", None, None, "neutral"),
+        ("caregiver_joined", script.CAREGIVER_JOINED, "bottom", None, None, "neutral"),
     ]
+    # Framing warnings (the camera cannot see the step), shown in the step's own layout. The
+    # hands-out-of-picture ones show the figure standing too close.
+    for problem, line in script.ARMS_FRAMING.items():
+        kind = "arms_close" if problem in ARMS_CLOSE else "arms"
+        cases.append((f"framing_arms_{problem}", line, "bottom", (2, "Arms"), None, kind))
+    for problem, line in script.FACE_FRAMING.items():
+        cases.append((f"framing_face_{problem}", line, "bottom", (1, "Smile"), 0.5, "neutral"))
     for name, line, pos, prog, frac, kind in cases:
         img = overlay.letterbox(scene(kind), W, H)
         layer, info = overlay.caption_layer(line.caption, W, H, pos)
@@ -149,7 +156,7 @@ def main() -> None:
             overlay.composite(img, overlay.pill_layer(f"Step {prog[0]} of 3 · {prog[1]}", W, H, other))
         path = out / f"{name}.png"
         cv2.imwrite(str(path), cv2.cvtColor(img, cv2.COLOR_RGBA2BGR))
-        print(f"{name:<16} size {info['size']:>3}px cap {info['cap']:>2}px lines {len(info['lines'])}  {path}")
+        print(f"{name:<28} size {info['size']:>3}px cap {info['cap']:>2}px lines {len(info['lines'])}  {path}")
 
 
 if __name__ == "__main__":

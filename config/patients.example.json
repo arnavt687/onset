@@ -1,0 +1,18 @@
+{
+  "default": "pat-001",
+  "patients": [
+    {
+      "id": "pat-001",
+      "name": "Alex",
+      "phones": ["+15551230001"],
+      "caregiver": {"name": "Sam", "phone": "+15551230002"}
+    },
+    {
+      "id": "pat-002",
+      "name": "Jordan",
+      "phones": ["+15551230003", "jordan@example.com"],
+      "caregiver": {"name": "Riley", "phone": "+15551230004"},
+      "sentence": "The sky is blue in Cincinnati."
+    }
+  ]
+}

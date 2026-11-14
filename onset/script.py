@@ -58,6 +58,100 @@ ARMS_TIMEOUT = Line(
 )
 
 
+# ---- framing: the camera cannot see what a step measures. Shown (and said) before the step
+# runs again; see CheckFlow and docs/thresholds.md ("Framing retries").
+
+FRAME_DARK = Line(
+    say="It's too dark for me to see you. Please turn on a light.",
+    caption="It's too dark to see you. Please turn on a light.",
+)
+
+FRAME_NO_BODY = Line(
+    say="I can't see you. Please prop the phone up so I can see you from the waist up.",
+    caption="I can't see you. Prop the phone so I see you from the waist up.",
+)
+
+FRAME_MOVE_BACK = Line(
+    say="I can't see both of your arms. Please move back so your hands are in the picture.",
+    caption="I can't see both arms. Move back so your hands are in the picture.",
+)
+
+FRAME_TILT_DOWN = Line(
+    say="I can't see your shoulders. Please move back, or tilt the phone down a little.",
+    caption="I can't see your shoulders. Move back, or tilt the phone down.",
+)
+
+FRAME_TILT_UP = Line(
+    say="I can't see your shoulders. Please tilt the phone up a little.",
+    caption="I can't see your shoulders. Tilt the phone up a little.",
+)
+
+FRAME_CENTER = Line(
+    say="Please face the phone, in the middle of the picture.",
+    caption="Please face the phone, in the middle of the picture.",
+)
+
+FRAME_HANDS_HIGH = Line(
+    say="Your hands are above the picture. Please hold your arms straight out, at shoulder height.",
+    caption="Hands too high. Hold your arms straight out, at shoulder height.",
+)
+
+FRAME_LEFT_HAND = Line(
+    say="I can't see your left hand. Please move back so both hands are in the picture.",
+    caption="I can't see your left hand. Move back so both hands show.",
+)
+
+FRAME_RIGHT_HAND = Line(
+    say="I can't see your right hand. Please move back so both hands are in the picture.",
+    caption="I can't see your right hand. Move back so both hands show.",
+)
+
+ARMS_RESTART = Line(
+    say="Let's start the hold again.",
+    caption="Let's start the hold again.",
+)
+
+FACE_NOT_VISIBLE = Line(
+    say="I can't see your face. Please hold the phone in front of you.",
+    caption="I can't see your face. Hold the phone in front of you.",
+)
+
+FACE_OFF_CENTER = Line(
+    say="Your face is at the edge of the picture. Please move it to the middle.",
+    caption="Please move your face to the middle of the picture.",
+)
+
+FACE_TURNED = Line(
+    say="Please look straight at the phone.",
+    caption="Please look straight at the phone.",
+)
+
+# Problem names from onset.measure.arms.FRAMING_PROBLEMS / face.FACE_FRAMING_PROBLEMS.
+ARMS_FRAMING = {
+    "too_dark": FRAME_DARK,
+    "no_body": FRAME_NO_BODY,
+    "shoulders_low": FRAME_TILT_DOWN,
+    "shoulders_high": FRAME_TILT_UP,
+    "shoulders_side": FRAME_CENTER,
+    "both_hands": FRAME_MOVE_BACK,
+    "hands_high": FRAME_HANDS_HIGH,
+    "left_hand": FRAME_LEFT_HAND,
+    "right_hand": FRAME_RIGHT_HAND,
+}
+FACE_FRAMING = {
+    "too_dark": FRAME_DARK,
+    "no_face": FACE_NOT_VISIBLE,
+    "edge": FACE_OFF_CENTER,
+    "turned": FACE_TURNED,
+}
+
+
+def framing_line(check: str, problem: str | None) -> Line:
+    """The fix-it line for a framing problem; a generic one for anything unknown."""
+    table = FACE_FRAMING if check == "face" else ARMS_FRAMING
+    return table.get(problem or "", FACE_NOT_VISIBLE if check == "face" else FRAME_MOVE_BACK)
+
+
 def sentence_prompt(sentence: str) -> Line:
     return Line(
         say=f"Last one. Please repeat this sentence after me: {sentence}",
@@ -88,6 +182,18 @@ CLOSE_UNCLEAR = Line(
     caption="I could not check clearly. Adding your caregiver. Please call 911 now.",
 )
 
+# Said when the caregiver opens the link and joins (they can see the caller).
+CAREGIVER_JOINED = Line(
+    say="Your caregiver has joined the call. Please still call 9 1 1.",
+    caption="Your caregiver has joined. Please call 911 now.",
+)
+
+# Said when the caregiver starts talking: from here the caller hears them through Onset.
+CAREGIVER_TALKING = Line(
+    say="You can talk to your caregiver now. Please still call 9 1 1.",
+    caption="Talking with your caregiver. Please call 911 now.",
+)
+
 CLOSE_NO_CHANGE = Line(
     say=(
         "I didn't notice any change from your usual check-in. "
@@ -116,6 +222,7 @@ CLOSE_BASELINE_FAILED = Line(
 PROGRESS = {
     "face_neutral": (1, "Smile"),
     "face_smile": (1, "Smile"),
+    "face_reframe": (1, "Smile"),
     "arms_wait": (2, "Arms"),
     "arms_hold": (2, "Arms"),
     "sentence": (3, "Sentence"),
@@ -123,7 +230,10 @@ PROGRESS = {
 
 ALL_LINES = [
     GREETING, FACE_NEUTRAL, FACE_SMILE, ARMS_RAISE, ARMS_HOLD, ARMS_DONE, ARMS_TIMEOUT,
-    DECIDING, CLOSE_ESCALATE, CLOSE_UNCLEAR, CLOSE_NO_CHANGE,
+    FRAME_DARK, FRAME_NO_BODY, FRAME_MOVE_BACK, FRAME_TILT_DOWN, FRAME_TILT_UP, FRAME_CENTER,
+    FRAME_HANDS_HIGH, FRAME_LEFT_HAND, FRAME_RIGHT_HAND, ARMS_RESTART,
+    FACE_NOT_VISIBLE, FACE_OFF_CENTER, FACE_TURNED,
+    DECIDING, CLOSE_ESCALATE, CLOSE_UNCLEAR, CAREGIVER_JOINED, CAREGIVER_TALKING, CLOSE_NO_CHANGE,
     CLOSE_BASELINE_SAVED, CLOSE_BASELINE_FAILED,
 ]
 

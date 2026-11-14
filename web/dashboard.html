@@ -212,6 +212,37 @@ main { display: grid; grid-template-columns: 1.12fr 1fr 0.6fr; grid-template-row
 
 footer { text-align: center; font-family: var(--f-mono); font-size: 0.8cqw; color: var(--dim); letter-spacing: 0.08em; position: relative; z-index: 2; }
 
+/* ---------------------------------------------------------------- trend drawer */
+/* Earlier check-ins for this person (GET /api/history). Opens over the meters and the phone. */
+.tbtn { font: 600 0.85cqw var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); background: transparent;
+  border: 0.1cqw solid var(--line-2); border-radius: 1cqw; padding: 0.25cqw 0.8cqw; cursor: pointer; display: flex; align-items: center; gap: 0.4cqw; }
+.tbtn:hover, .tbtn.on { color: var(--blue); border-color: rgba(103,224,210,.6); }
+.tbtn:focus-visible { outline: 0.15cqw solid var(--blue); outline-offset: 0.15cqw; }
+.tbtn .dot { width: 0.6cqw; height: 0.6cqw; border-radius: 50%; background: var(--red); box-shadow: 0 0 0.6cqw var(--red); display: none; }
+.tbtn.flagged .dot { display: inline-block; }
+#trend { grid-column: 2 / 4; grid-row: 1 / 3; z-index: 4; gap: 0.5cqw; background: linear-gradient(180deg, rgba(16,27,41,.98), rgba(12,21,34,.98)); border-color: var(--line-2); }
+#trend[hidden] { display: none; }
+#trend .tclose { font: 500 0.8cqw var(--f-mono); color: var(--muted); background: transparent; border: 0.08cqw solid var(--line-2); border-radius: 0.8cqw; padding: 0.1cqw 0.7cqw; cursor: pointer; }
+.tmeta { font-size: 1cqw; color: var(--muted); }
+.trows { display: grid; grid-template-columns: 11cqw minmax(0, 1fr) 6.5cqw 10.5cqw; align-items: center; column-gap: 0.8cqw; row-gap: 0.35cqw; font-size: 1cqw; }
+.trows .lbl { color: var(--text); white-space: nowrap; } .trows .lbl small { display: block; color: var(--dim); font-size: 0.75cqw; }
+.trows .val { text-align: right; font-family: var(--f-mono); font-weight: 600; font-size: 1.1cqw; font-variant-numeric: tabular-nums; }
+.trows .val small { display: block; font-weight: 400; font-size: 0.72cqw; color: var(--muted); }
+.trows svg { width: 100%; height: auto; max-height: 3.6cqw; display: block; background: rgba(150,190,220,.05); border-radius: 0.4cqw; }
+.sp-line { fill: none; stroke: var(--blue); stroke-width: 1.4; }
+.sp-limit { stroke: var(--red); stroke-width: 1.1; stroke-dasharray: 4 3; }
+.sp-base { stroke: var(--text); stroke-width: 1; stroke-dasharray: 1 3; opacity: .7; }
+.sp-pt { fill: var(--ok); } .sp-pt.esc { fill: var(--red); } .sp-pt.unc { fill: var(--amber); } .sp-pt.base { fill: var(--blue); }
+.sp-empty { fill: var(--dim); font-size: 11px; }
+.tchip { font: 600 0.72cqw var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 0.15cqw 0.6cqw; border-radius: 1cqw; color: var(--dim); border: 0.08cqw solid var(--line-2); justify-self: start; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.tchip.decline { background: var(--red); color: #fff; border-color: var(--red); }
+.tchip.reached { color: var(--amber); border-color: var(--amber); }
+.tflags { margin: 0.2cqw 0 0; padding-left: 1.2cqw; font-size: 0.95cqw; line-height: 1.3; color: var(--text); }
+.tflags li { margin-bottom: 0.15cqw; } .tflags li::marker { color: var(--red); }
+.tfoot { margin-top: auto; font-size: 0.8cqw; color: var(--dim); }
+.tfoot code { font-family: var(--f-mono); color: var(--muted); }
+.tempty { margin: auto 0; text-align: center; color: var(--muted); font-size: 1.2cqw; line-height: 1.5; }
+
 /* ---------------------------------------------------------------- sound overlay */
 #unlock { position: absolute; inset: 0; background: rgba(4,7,12,.72); display: none; place-items: center; z-index: 10; cursor: pointer; backdrop-filter: blur(0.3cqw); }
 #unlock.show { display: grid; }
@@ -234,6 +265,8 @@ footer { text-align: center; font-family: var(--f-mono); font-size: 0.8cqw; colo
       <span class="badge" id="runbadge">no call yet</span>
       <span id="dtime" style="font-variant-numeric: tabular-nums"></span>
       <span class="conn" id="conn"><i></i><span>connecting</span></span>
+      <button type="button" class="tbtn" id="trendbtn" aria-expanded="false" aria-controls="trend"
+              title="This person's earlier check-ins and their trends"><span class="dot"></span><span id="trendlbl">Trend</span></button>
       <label class="toggle" title="Callers cannot hear the agent over FaceTime yet, so the laptop speaks its lines.">
         <input type="checkbox" id="voice" checked><span class="sw"></span><span>Play agent voice in the room</span>
       </label>
@@ -276,6 +309,11 @@ footer { text-align: center; font-family: var(--f-mono); font-size: 0.8cqw; colo
         <div class="msgs" id="msgs"><div class="empty">No message</div></div>
       </div>
     </section>
+
+    <section class="panel" id="trend" hidden aria-label="Trend over earlier check-ins">
+      <h2><span id="trendtitle">Trend</span><button type="button" class="tclose" id="trendclose">close</button></h2>
+      <div id="trendbody"></div>
+    </section>
   </main>
 
   <footer>Research prototype · not a medical device · never says you're fine</footer>
@@ -288,7 +326,7 @@ footer { text-align: center; font-family: var(--f-mono); font-size: 0.8cqw; colo
 // ------------------------------------------------------------------ constants
 const STEPS = [
   { key: "greet", label: "Greet", names: ["greet"] },
-  { key: "face", label: "Face", names: ["face_neutral", "face_smile"] },
+  { key: "face", label: "Face", names: ["face_neutral", "face_smile", "face_reframe"] },
   { key: "arms", label: "Arms", names: ["arms_wait", "arms_hold"] },
   { key: "sentence", label: "Sentence", names: ["sentence"] },
   { key: "result", label: "Result", names: ["deciding", "closing", "baseline_saved"] },
@@ -310,6 +348,8 @@ function fresh() {
            lastSay: "", reached: -1 };
 }
 S = fresh();
+// Trend drawer: this person's archived check-ins (GET /api/history), not tied to one run.
+const TR = { pid: null, data: null, err: null, open: false, seq: 0 };
 let caughtUp = false;
 const played = new Set();
 
@@ -338,6 +378,7 @@ function apply(ev, live) {
       S.maxT = t; S.maxTAt = performance.now();
       if (ev.baseline && typeof ev.baseline === "object") S.baseline = ev.baseline;
       else if (ev.has_baseline && ev.patient_id) fetchBaseline(ev.run_id, ev.patient_id);
+      if (ev.patient_id && ev.patient_id !== TR.pid) loadTrend(true);
       break;
     case "step":
       S.step = ev.name; S.caption = ev.caption || ""; S.stepSeconds = num(ev.seconds);
@@ -356,12 +397,21 @@ function apply(ev, live) {
       else if (String(ev.step).startsWith("arms")) Object.assign(S.arms.live, m);
       break;
     }
+    case "framing":  // the camera could not see the step: fix-it caption shown, step re-run
+      if (S[ev.check]) {
+        S[ev.check].framing = ev;
+        if (ev.action === "retry" && ev.check === "arms") S.arms.live = {};
+      }
+      break;
     case "result":
       if (S[ev.check]) S[ev.check].result = { quality: ev.quality, ...(ev.data || {}) };
       break;
     case "decision": S.decision = ev; break;
     case "caregiver": S.caregiver = ev; break;
-    case "run_ended": if (!S.ended) S.ended = ev; break;
+    case "run_ended":
+      if (!S.ended) S.ended = ev;
+      if (live) setTimeout(() => loadTrend(true), 1500); // the run is archived just after it ends
+      break;
   }
 }
 
@@ -429,8 +479,24 @@ function head(name, sub, st) {
 }
 function usualTxt(v, fmt = f2) { return num(v) === null ? "" : `<small>usual ${fmt(v)}</small>`; }
 const wpmFmt = v => String(Math.round(v));
+const FRAMING = { too_dark: "too dark", no_body: "person not in view", no_face: "face not in view",
+                  edge: "face at the edge", turned: "head turned away", shoulders_low: "shoulders below the picture",
+                  shoulders_high: "shoulders above the picture", shoulders_side: "not facing the phone",
+                  both_hands: "both hands out of view", hands_high: "hands above the picture",
+                  left_hand: "left hand out of view", right_hand: "right hand out of view" };
+// While a check is running: the latest framing warning (what the caller was told to fix).
+function framingNote(check, r) {
+  const f = S[check].framing;
+  if (!f || r) return "";
+  const what = esc(FRAMING[f.problem] || f.problem || "not in view");
+  if (f.action === "give_up") return `<div class="note warn">Still can't see: ${what}. No retries left, carrying on.</div>`;
+  return `<div class="note warn">Reframing: ${what} · try ${esc(f.retry)} of ${esc(f.max_retries)}</div>`;
+}
 function qualityNote(r, st) {
   if (!r) return "";
+  const n = r.detail ? num(r.detail.framing_retries) : null;
+  if (r.quality !== "ok" && n) return `<div class="note warn">Not measured clearly: ${esc(QUALITY[r.quality] || r.quality)}, even after ${n} ${n === 1 ? "retry" : "retries"}</div>`;
+  if (r.quality === "ok" && n) return `<div class="note">Measured after ${n} framing ${n === 1 ? "retry" : "retries"}</div>`;
   if (r.quality !== "ok") return `<div class="note warn">Not measured clearly: ${esc(QUALITY[r.quality] || r.quality)}${r.detail && r.detail.reason ? " (" + esc(r.detail.reason) + ")" : ""}</div>`;
   return "";
 }
@@ -444,13 +510,13 @@ function renderFace() {
   const usual = b ? b.face_asymmetry : null;
   const chg = num(usual) !== null ? usual + TH.face_asymmetry_increase : null;
   const bad = st === "changed";
-  const sub = live ? (S.step === "face_neutral" ? "relaxed face" : S.step === "face_smile" ? "big smile" : "smile check")
+  const sub = live ? (S.step === "face_neutral" ? "relaxed face" : S.step === "face_smile" ? "big smile" : S.step === "face_reframe" ? "fixing the camera view" : "smile check")
                    : (bad && r.weaker_side ? `${r.weaker_side} side lifts less than usual` : "smile check");
   let h = head("Face", sub, st) + `<div class="rows">`;
   h += row("Left lift", gauge(ll, 0.3, { cls: "side-l" }), f2(ll));
   h += row("Right lift", gauge(lr, 0.3, { cls: "side-r" }), f2(lr));
   h += row("Asymmetry", gauge(asym, 1, { usual, change: chg, cls: bad ? "bad" : live ? "live" : "" }), f2(asym) + usualTxt(usual), bad ? "bad" : "");
-  h += `</div>` + qualityNote(r, st);
+  h += `</div>` + framingNote("face", r) + qualityNote(r, st);
   return [st, h];
 }
 
@@ -476,7 +542,7 @@ function renderArms() {
   h += row("Right drift", gauge(Math.max(0, dr ?? 0), 0.3, { cls: "side-r" }), f2(dr));
   h += row("Difference", gauge(diff, 0.3, { usual, change: chg, cls: bad ? "bad" : live ? "live" : "" }), f2(diff) + usualTxt(usual), bad ? "bad" : "");
   h += row("Hold", gauge(holdFill, hold, { cls: holdWarn ? "warn" : live ? "live" : "" }), esc(holdVal), holdWarn ? "warn" : "");
-  h += `</div>` + qualityNote(r, st);
+  h += `</div>` + framingNote("arms", r) + qualityNote(r, st);
   return [st, h];
 }
 
@@ -704,7 +770,105 @@ function stopAudio() {
   current = null;
 }
 
+// ------------------------------------------------------------------ trend over earlier check-ins
+const T_DIGITS = { words_per_minute: 0 };
+const tfmt = (key, v) => num(v) === null ? "–" : v.toFixed(T_DIGITS[key] ?? 2);
+const T_OUT = { escalate: "esc", unclear: "unc", baseline_recorded: "base" };
+function fmtDay(iso) {
+  try { return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" }); } catch (e) { return ""; }
+}
+function trendPid() { return S.patientId || params.get("patient") || null; }
+
+async function loadTrend(force) {
+  const pid = trendPid();
+  if (!pid) { TR.pid = null; TR.data = null; TR.err = null; renderTrend(); return; }
+  if (!force && TR.pid === pid && TR.data) { renderTrend(); return; }
+  const seq = ++TR.seq;
+  TR.pid = pid;
+  try {
+    const r = await fetch("/api/history?patient=" + encodeURIComponent(pid), { cache: "no-store" });
+    const body = r.ok ? await r.json() : null;
+    if (seq !== TR.seq) return;
+    TR.data = body; TR.err = r.ok ? null : "This person's history could not be read.";
+  } catch (e) {
+    if (seq !== TR.seq) return;
+    TR.err = "History unavailable (dashboard offline?)";
+  }
+  renderTrend();
+}
+
+function spark(tr, start, end) {
+  const W = 300, H = 44, L = 4, R = W - 4, T = 4, B = H - 4;
+  const pts = (tr.points || []).filter(p => num(p.v) !== null);
+  if (!pts.length) return `<svg viewBox="0 0 ${W} ${H}"><text x="${W / 2}" y="${H / 2 + 4}" text-anchor="middle" class="sp-empty">no measurements</text></svg>`;
+  let t0 = Date.parse(start), t1 = Date.parse(end);
+  if (!isFinite(t0) || !isFinite(t1)) { t0 = Date.parse(pts[0].t); t1 = Date.parse(pts[pts.length - 1].t); }
+  const span = Math.max(1, t1 - t0);
+  const vals = pts.map(p => p.v).concat([tr.baseline, tr.limit].filter(v => num(v) !== null));
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi - lo < 1e-9) { const p = Math.abs(hi) * 0.1 || 0.05; lo -= p; hi += p; }
+  const pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
+  const x = t => L + Math.min(1, Math.max(0, (Date.parse(t) - t0) / span)) * (R - L);
+  const y = v => B - (v - lo) / (hi - lo) * (B - T);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(tr.label)}">`;
+  if (num(tr.limit) !== null) s += `<line class="sp-limit" x1="${L}" x2="${R}" y1="${y(tr.limit)}" y2="${y(tr.limit)}"><title>change threshold ${tfmt(tr.key, tr.limit)}</title></line>`;
+  if (num(tr.baseline) !== null) s += `<line class="sp-base" x1="${L}" x2="${R}" y1="${y(tr.baseline)}" y2="${y(tr.baseline)}"><title>baseline ${tfmt(tr.key, tr.baseline)}</title></line>`;
+  if (pts.length > 1) s += `<polyline class="sp-line" points="${pts.map(p => `${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ")}"/>`;
+  for (const p of pts) s += `<circle class="sp-pt ${T_OUT[p.outcome] || ""}" cx="${x(p.t).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="2.4"><title>${esc(fmtDay(p.t))}: ${tfmt(tr.key, p.v)}</title></circle>`;
+  return s + `</svg>`;
+}
+
+function renderTrend() {
+  const d = TR.data, btn = $("trendbtn"), body = $("trendbody");
+  const n = d && d.checkins ? d.checkins.length : 0;
+  const flagged = !!(d && (d.flags || []).some(f => f.kind === "gradual_decline"));
+  $("trendlbl").textContent = n ? `Trend · ${n}` : "Trend";
+  btn.classList.toggle("flagged", flagged);
+  btn.title = flagged ? "A measurement is drifting steadily toward its threshold" : "This person's earlier check-ins and their trends";
+  $("trendtitle").textContent = TR.pid ? `Trend · ${TR.pid}` : "Trend";
+  let h;
+  if (!TR.pid) h = `<div class="tempty">Earlier check-ins appear here once a call starts<br>(or open the dashboard with <code>?patient=&lt;id&gt;</code>).</div>`;
+  else if (TR.err) h = `<div class="tempty">${esc(TR.err)}</div>`;
+  else if (!d) h = `<div class="tempty">Loading…</div>`;
+  else if (!n) h = `<div class="tempty">No finished check-ins archived for this person yet.</div>`;
+  else {
+    const c = d.counts || {}, w = d.window || {};
+    h = `<div class="tmeta">${n} check-in${n === 1 ? "" : "s"} · ${esc(fmtDay(w.start))} – ${esc(fmtDay(w.end))} · ` +
+        `${c.escalate || 0} change detected · ${c.unclear || 0} unclear · ${c.no_change_detected || 0} no change detected</div>`;
+    h += `<div class="legend"><span><i></i>baseline</span><span><i class="chg"></i>change threshold</span></div><div class="trows">`;
+    for (const key of ["face_asymmetry", "arm_drift_left", "arm_drift_right", "arm_drift_difference", "speech_wer", "words_per_minute", "longest_pause_s"]) {
+      const tr = (d.trends || {})[key];
+      if (!tr) continue;
+      let chip = `<span class="tchip">${esc(tr.direction || "")}</span>`;
+      if (tr.gradual_decline) chip = `<span class="tchip decline" title="Moving steadily toward its change threshold; no check-in reached it">gradual decline</span>`;
+      else if (tr.reached_limit) chip = `<span class="tchip reached" title="Check-ins at or past the change threshold">reached ×${tr.reached_limit}</span>`;
+      const base = num(tr.baseline) !== null ? `<small>baseline ${tfmt(key, tr.baseline)}</small>` : "";
+      h += `<div class="lbl">${esc(tr.label)}<small>${esc(tr.unit)}</small></div>${spark(tr, w.start, w.end)}` +
+           `<div class="val">${tfmt(key, tr.latest)}${base}</div>${chip}`;
+    }
+    h += `</div>`;
+    const flags = (d.flags || []).filter(f => f.kind === "gradual_decline").map(f => f.text);
+    h += flags.length ? `<ul class="tflags">${flags.map(t => `<li>${esc(t)}</li>`).join("")}</ul>`
+                      : `<div class="tmeta">No measurement moved steadily toward its change threshold.</div>`;
+    h += `<div class="tfoot">Measurements only, not a diagnosis. Care-team report: <code>tools/history_report.py --patient ${esc(TR.pid)}</code></div>`;
+  }
+  setHTML(body, h);
+}
+
+function setTrendOpen(open) {
+  TR.open = open;
+  $("trend").hidden = !open;
+  $("trendbtn").classList.toggle("on", open);
+  $("trendbtn").setAttribute("aria-expanded", String(open));
+  if (open) loadTrend(false);
+}
+$("trendbtn").addEventListener("click", () => setTrendOpen(!TR.open));
+$("trendclose").addEventListener("click", () => setTrendOpen(false));
+document.addEventListener("keydown", e => { if (e.key === "Escape" && TR.open) setTrendOpen(false); });
+
 // ------------------------------------------------------------------ start
+renderTrend();
+if (params.get("trend") === "1") setTrendOpen(true); else if (params.get("patient")) loadTrend(true);
 fetch("/config", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(c => {
   if (c && c.thresholds && Object.keys(c.thresholds).length) { TH = { ...TH, ...c.thresholds }; render(); }
 }).catch(() => {});

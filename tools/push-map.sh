@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd ~/onset
+cd "$(dirname "$0")/.."
 .venv/bin/python -m pytest -q tests 2>&1 | tail -3
 git add -A
 git ls-files --cached | grep -qE '^\.env\.local$|^models/' && { echo "secret or model staged; aborting"; exit 1; }

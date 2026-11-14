@@ -16,6 +16,9 @@ It serves web/dashboard.html and reads what the call flow writes (see onset/even
     GET /audio/<name>   one spoken line, only plain *.wav names inside runs/live/audio
     GET /config         the decision thresholds, so the meters match onset/decide.py
     GET /baseline/<id>  the saved baseline numbers for a patient id (404 if none)
+    GET /api/history?patient=<id>
+                        that person's archived check-ins and trends (onset/history.py), for the
+                        Trend panel; 400 for an invalid id, an empty history if there are none
     GET /healthz        "ok"
 
 It binds 127.0.0.1 only: frames and audio can hold a person's face and voice.
@@ -115,6 +118,20 @@ async def baseline(request: web.Request) -> web.Response:
     keep = ("recorded_at", "face_asymmetry", "arm_drift_difference", "speech_word_error_rate",
             "speech_words_per_minute", "samples")
     return web.json_response({k: getattr(b, k) for k in keep}, headers=NO_CACHE)
+
+
+async def history(request: web.Request) -> web.Response:
+    pid = request.query.get("patient", "")
+    from onset.history import load_history, valid_patient_id
+
+    if not valid_patient_id(pid):
+        raise web.HTTPBadRequest(text="invalid patient id", headers=NO_CACHE)
+    # Reading every archive is file work; keep it off the event loop that feeds the SSE tail.
+    h = await asyncio.to_thread(load_history, pid, request.app[RUNS_KEY], baselines_dir=request.app[BASELINES_KEY])
+    body = h.to_dict()
+    for c in body["checkins"]:
+        c.pop("artifacts", None)  # the page has no use for file details
+    return web.json_response(body, headers=NO_CACHE)
 
 
 # --------------------------------------------------------------------------- SSE tail
@@ -250,6 +267,7 @@ def make_app(runs: Path = DEFAULT_RUNS, baselines: Path = DEFAULT_BASELINES) -> 
     app.router.add_get("/audio/{name}", audio)
     app.router.add_get("/config", config)
     app.router.add_get("/baseline/{patient_id}", baseline)
+    app.router.add_get("/api/history", history)
     return app
 
 

@@ -424,13 +424,19 @@ def _detail(result: object) -> dict:
     return d if isinstance(d, dict) else {}
 
 
-def _quality_line(step: str, quality: Quality) -> str:
+def _quality_line(step: str, quality: Quality, detail: dict | None = None) -> str:
     if quality is Quality.NO_RESPONSE:
-        return _NO_RESPONSE_LINES[step]
-    if quality is Quality.PARTIAL and step in _PARTIAL_LINES:
-        return _PARTIAL_LINES[step]
-    template = _QUALITY_LINES.get(quality, "The {step} could not be completed")
-    return template.format(step=_STEP_NAMES[step])
+        line = _NO_RESPONSE_LINES[step]
+    elif quality is Quality.PARTIAL and step in _PARTIAL_LINES:
+        line = _PARTIAL_LINES[step]
+    else:
+        line = _QUALITY_LINES.get(quality, "The {step} could not be completed").format(step=_STEP_NAMES[step])
+    # The flow asked the person to fix the picture and re-ran the step (onset/flow.py).
+    retries = _num((detail or {}).get("framing_retries"))
+    if retries is not None and retries >= 1:
+        n = int(retries)
+        line += f", even after {n} {'try' if n == 1 else 'tries'} to fix the camera view"
+    return line
 
 
 def _side(weaker_side: object) -> str | None:
@@ -467,7 +473,7 @@ def _moved_toward_weaker(today: float | None, base: float | None, threshold: flo
 
 def _face_findings(face, baseline: Baseline | None, t: Thresholds, changes: list, unclear: list) -> None:
     if face.quality is not Quality.OK:
-        unclear.append(_quality_line("face", face.quality))
+        unclear.append(_quality_line("face", face.quality, _detail(face)))
         return
     if not _usable(face.asymmetry):
         unclear.append("The smile check did not give a usable measurement")
@@ -501,7 +507,7 @@ def _face_findings(face, baseline: Baseline | None, t: Thresholds, changes: list
 
 def _arm_findings(arms, baseline: Baseline | None, t: Thresholds, changes: list, unclear: list) -> None:
     if arms.quality is not Quality.OK:
-        unclear.append(_quality_line("arms", arms.quality))
+        unclear.append(_quality_line("arms", arms.quality, _detail(arms)))
         return
     if not _usable(arms.drift_difference):
         unclear.append("The arm check did not give a usable measurement")

@@ -186,6 +186,92 @@ baseline's, the step is UNCLEAR ("A different sentence was used than at the usua
 WER and the pause are still compared (a large error still escalates); rate and confidence are
 not, because they depend on the sentence.
 
+## Longitudinal trends
+
+`decide()` judges one check-in at a time. `onset/history.py` reads the archived check-ins
+(`runs/<run_id>/events.jsonl`) and looks across them, to catch a slow drift that no single
+call flags. It changes no outcome and adds nothing to the call: it is a report for the care
+team (`tools/history_report.py`, and the dashboard's Trend panel).
+
+**Which numbers.** Only numbers from steps whose quality was `OK`, the same ones `decide()`
+uses. Each run's own `run_started` event carries the baseline it was compared with; the
+trends use the latest run's baseline, or `baselines/<id>.json` if no run carried one.
+
+**The line each metric is drawn against** is the main per-metric rule above, applied to that
+baseline:
+
+| Metric | Change threshold in the trend | From |
+|---|---|---|
+| Smile asymmetry | baseline + `face_asymmetry_increase` | 0.10 |
+| Arm drift difference | min(baseline + `arm_drift_difference_increase`, `arm_drift_difference_absolute`) | 0.06, 0.20 |
+| Left / right arm drift | `arm_single_drift_absolute` | 0.50 |
+| Word error rate | baseline + `speech_wer_increase` | 0.10 |
+| Words per minute | baseline × (1 − `speech_rate_drop_fraction`) | 0.80 × |
+| Longest pause | max(`speech_pause_floor_s`, baseline + `speech_pause_increase_s`), or `speech_longest_pause_s` with no stored pause | 1.0, 0.7, 1.5 |
+
+The side-switch, word-count and confidence rules have no single line to draw, so the trend
+does not model them; they still decide each call.
+
+**Trend settings** (`TrendSettings` in `onset/history.py`; prototype values like everything here):
+
+| Name | Default | Meaning |
+|---|---|---|
+| `window_days` | 90 | rolling window, starting at the first check-in (the first 90 days home) |
+| `compare_days` | 7 | the last 7 days against the 7 days before |
+| `min_points` | 5 | measured check-ins needed before a gradual decline can be flagged |
+| `min_correlation` | 0.6 | \|r\| of the least-squares line against time: "steady", not noise |
+| `min_progress` | 0.5 | the fitted latest value has covered half the distance from baseline to threshold |
+
+**Gradual decline** is flagged when all of these hold for a metric in the window: at least
+`min_points` measurements; the least-squares slope points toward the threshold with
+\|r\| ≥ `min_correlation`; the fitted value at the latest check-in is at least
+`min_progress` of the way from the baseline (or, with no baseline, from the fitted first
+value) to the threshold; and no check-in reached the threshold. A metric that did reach it
+is reported as "threshold reached" instead, since a call at or past it normally escalated
+already (the trend uses the latest baseline, which can differ from the one a call used). The report
+also gives a straight-line estimate of the days left before the threshold; it is an
+extrapolation, not a forecast.
+
+## Framing retries
+
+Before a step's quality is final, the call flow (`onset/flow.py`) checks whether the camera can
+see what the step measures. If it cannot, Onset shows and says how to fix the picture, then runs
+the step again. These are flow settings in `Timing`, not decision thresholds:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `max_reframes` | 2 per step | Retries for the face step and for the arm step. After the last one the step runs exactly as before, so a step that still cannot be read is UNCLEAR (caregiver + 911). |
+| `reframe_after_s` | 4.0 s | Arm step: time to read the line and raise the arms before any framing advice. |
+| `reframe_retry_s` | 8.0 s | Arm step, after a warning: time to move the phone (and hear the line) before warning again. |
+| `reframe_persist_s` | 1.5 s | Arm step, before the hold: the problem must have lasted this long. |
+| `hold_lost_grace_s` | 1.0 s | During the 10 s hold: an arm out of the picture this long stops the hold, warns, and restarts it from zero. |
+| `face_reframe_s` | 4.0 s | The face fix-it caption stays on screen this long before the face step runs again. |
+| `face_lost_fraction` | 0.75 | Face missing for this share of the neutral window: warn straight away instead of after the smile. |
+
+Each retry extends the call's time cap by what it costs (`arms_wait_timeout_s + arms_hold_s`
+for the arms, the whole face step plus `face_reframe_s` for the face), so a retry never pushes
+the sentence step past the cap. The worst case is bounded: two retries per step.
+
+What counts as a framing problem (`onset/measure/arms.py` `frame_problem`, `face.py`
+`face_problem`): no body or face found, too dark, shoulders off an edge, a wrist hidden or off
+the side, both wrists above the top edge, face at the edge or turned away. Each has its own
+line in `onset/script.py` (`ARMS_FRAMING`, `FACE_FRAMING`), e.g. "I can't see your left hand.
+Move back so both hands show."
+
+What is **never** retried, because it is a finding and goes straight to the decision:
+
+- a wrist below the bottom edge (an arm not raised, or an arm that came down);
+- during the hold, a wrist that was already moving down (more than `UP_LEVEL` 0.25 sw under
+  the shoulder line) when it disappeared: the hold carries on, is never restarted, and the
+  result notes `dropped_out_of_view`;
+- one arm coming down early (`early_drop`), arms never raised, no smile (`NO_RESPONSE`);
+- `MOTION` and `ERROR` results.
+
+A result measured after retries carries `framing_retries` and `framing_problem` in its
+`detail`; if it is still not `OK`, the UNCLEAR reason says so, e.g. "The person was only partly
+in view during the arm check, even after 2 tries to fix the camera view". Every warning is a
+`framing` event (`onset/events.py`) and shows on the dashboard.
+
 ## Tuning from recorded data
 
 Use the recorder and replay tools (piece 7: `tools/record.py`, `tools/replay.py`) to build a

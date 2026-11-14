@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd ~/onset
+cd "$(dirname "$0")/.."
 gh label create piece --color 0E8A16 --description "A roadmap piece" 2>/dev/null || true
 gh label create blocked --color B60205 --description "Waiting on something outside the repo" 2>/dev/null || true
 mk() { # title, body, [extra label]

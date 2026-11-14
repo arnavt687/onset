@@ -18,8 +18,19 @@ Steps: greet -> face_neutral -> face_smile -> arms_wait -> arms_hold -> sentence
 -> closing (+ baseline_saved on a first run). The whole check is capped at Timing.cap_s; any
 step not finished by then counts as NO_RESPONSE, which makes the decision UNCLEAR.
 
+Framing retries: when the camera cannot see what a step measures (no face, a hand out of the
+picture, too dark), the flow says what to fix and runs that step again: face_reframe ->
+face_neutral, or back to arms_wait (a hold that loses an arm for more than
+Timing.hold_lost_grace_s restarts). At most Timing.max_reframes per step; each one emits a
+`framing` event and extends the time cap by what it costs. After the last retry the step runs
+as it always did, so an unreadable step still ends UNCLEAR (caregiver + 911). A wrist that was
+moving down when it disappeared, an arm that came down early, no smile and arms never raised
+are findings, never framing problems.
+
 Safety: outcomes come only from onset.decide (rules). UNCLEAR and ESCALATE both tell the
-person to call 911 now and text the caregiver. No line says "you're fine" (see onset/script.py).
+person to call 911 now and bring the caregiver in (a join link plus the summary by iMessage,
+onset/caregiver.py; a dry run unless ONSET_LIVE_ACTIONS=1). No line says "you're fine"
+(see onset/script.py).
 """
 
 from __future__ import annotations
@@ -70,10 +81,40 @@ class Timing:
     speech_timeout_s: float = 15.0
     cap_s: float = 90.0  # from start(); everything unfinished is NO_RESPONSE
     live_interval_s: float = 0.2  # live metric events, ~5 per second
+    # Framing retries (docs/thresholds.md, "Framing retries"): the camera cannot see what a
+    # step measures, so say how to fix it and run the step again, at most max_reframes times
+    # per step. After that the step carries on as before, and an unreadable step is UNCLEAR.
+    max_reframes: int = 2
+    reframe_after_s: float = 4.0  # arms_wait: time to read the line and raise the arms first
+    reframe_retry_s: float = 8.0  # ... and after a warning: time to move the phone and raise again
+    reframe_persist_s: float = 1.5  # arms_wait: the problem must have lasted this long
+    hold_lost_grace_s: float = 1.0  # arms_hold: an arm out of the picture this long restarts
+    face_reframe_s: float = 4.0  # the fix-it caption on screen before the face step re-runs
+    face_lost_fraction: float = 0.75  # face missing for this much of the neutral window: re-run now
 
 
 STEP_ORDER = ["greet", "face_neutral", "face_smile", "arms_wait", "arms_hold", "sentence",
               "deciding", "closing"]
+
+# Step qualities that mean "the camera could not see it", worth one more try after the person
+# fixes the picture. NO_RESPONSE (no smile, arms not raised) is a finding and is never retried;
+# neither are MOTION and ERROR.
+REFRAMEABLE = (Quality.NO_SUBJECT, Quality.PARTIAL, Quality.TOO_DARK)
+
+_ARM_REASON_PROBLEM = {"body_not_found": "no_body", "wrists_not_visible": "both_hands",
+                       "wrists_lost_during_hold": "both_hands", "too_far_or_side_on": "shoulders_side",
+                       "very_dark": "too_dark", "no_frames": "no_body"}
+_FACE_REASON_PROBLEM = {"head turned away": "turned", "face cut off by the frame edge": "edge"}
+
+
+def _problem_from_result(check: str, res: Any) -> str:
+    """A framing problem name from a finished step's result (when no live framing is known)."""
+    if res.quality is Quality.TOO_DARK:
+        return "too_dark"
+    reason = str((res.detail or {}).get("reason", ""))
+    if check == "face":
+        return _FACE_REASON_PROBLEM.get(reason, "no_face")
+    return _ARM_REASON_PROBLEM.get(reason, "both_hands")
 
 # Where the caption panel goes, so it does not cover what is being measured.
 CAPTION_POS = {"face_neutral": "top", "face_smile": "top"}
@@ -139,6 +180,9 @@ class CheckFlow:
         baseline_dir: Path | None = None,
         caregiver_phone: str | None = None,
         caregiver_send: bool | None = None,
+        caregiver_name: str | None = None,
+        escalate: Callable[[Decision, str], Awaitable[dict]] | None = None,
+        save_baseline: bool = True,
         recorder=None,  # tools.record.Recorder (whole call), or None
         source: str = "call",
         run_id: str = "",
@@ -159,9 +203,14 @@ class CheckFlow:
         self._send = send_message or _default_send
         self.baseline_dir = baseline_dir
         self.caregiver_phone = caregiver_phone if caregiver_phone is not None else os.environ.get("ONSET_CAREGIVER_PHONE", "")
-        if caregiver_send is None:
-            caregiver_send = os.environ.get("ONSET_CAREGIVER_SEND") == "1"
-        self.caregiver_send = bool(caregiver_send and self.caregiver_phone)
+        self.caregiver_name = caregiver_name if caregiver_name is not None else os.environ.get("ONSET_CAREGIVER_NAME", "")
+        # Whether a real text may be sent is decided by the safety gate (onset.actions:
+        # ONSET_LIVE_ACTIONS=1 plus a caregiver phone). caregiver_send=False forces a dry run.
+        self._force_dry = caregiver_send is False
+        self._escalate_fn = escalate  # agent.py: caregiver link + relay + text; None: text only
+        self.save_baseline = save_baseline  # False for an unidentified caller
+        self.caregiver_status = ""  # "" | invited | joined | talking | left
+        self._cg_frame: tuple[float, np.ndarray] | None = None  # (t, rgb) caregiver camera for PiP
         self.recorder = recorder
         self.source, self.run_id = source, run_id
 
@@ -195,6 +244,11 @@ class CheckFlow:
         self._rec_window: tuple[float, float] | None = None
         self._face_meter = None
         self._arm_meter = None
+        self.reframes = {"face": 0, "arms": 0}  # framing retries used per step
+        self._framing_last: dict[str, str | None] = {"face": None, "arms": None}
+        self._framing_gave_up: set[str] = set()
+        self._cap_bonus = 0.0  # each retry extends the time cap by what it costs
+        self._hold_dropped: str | None = None  # side that vanished while moving down, this hold
         self.events: list[dict] = []  # a copy of everything emitted (tests, logs)
 
     # ------------------------------------------------------------------ output helpers
@@ -310,38 +364,77 @@ class CheckFlow:
         tm, s = self.timing, self.state
         if s in ("idle", "deciding", "closing") or self.needs_evaluation:
             return
-        if self.t0 is not None and t - self.t0 >= tm.cap_s:
+        if self.t0 is not None and t - self.t0 >= tm.cap_s + self._cap_bonus:
             self._finish_measuring(t, "time limit")
             return
         el = t - self._step_t
         if s == "greet" and el >= tm.greet_s:
             self._enter("face_neutral", t, script.FACE_NEUTRAL, seconds=tm.neutral_lead_s + tm.neutral_measure_s)
+        elif s == "face_reframe" and el >= tm.face_reframe_s:
+            self._enter("face_neutral", t, script.FACE_NEUTRAL, seconds=tm.neutral_lead_s + tm.neutral_measure_s)
         elif s == "face_neutral":
             if self._measure_t is None and el >= tm.neutral_lead_s:
                 self._measure_t = t
             elif el >= tm.neutral_lead_s + tm.neutral_measure_s:
+                # Face missing for most of the neutral window: say so now rather than after the smile.
+                fr = self._meter_framing(self._face_meter)
+                if (fr is not None and not fr.ok and fr.seconds >= tm.face_lost_fraction * tm.neutral_measure_s
+                        and self._reframe("face", fr.problem, t, "neutral")):
+                    return
                 self._enter("face_smile", t, script.FACE_SMILE, seconds=tm.smile_lead_s + tm.smile_measure_s)
         elif s == "face_smile":
             if self._measure_t is None and el >= tm.smile_lead_s:
                 self._measure_t = t
             elif el >= tm.smile_lead_s + tm.smile_measure_s:
-                self.face = self._read_face()
+                res = self._read_face()
+                if res.quality in REFRAMEABLE and self._face_meter is not None:
+                    fr = self._meter_framing(self._face_meter)
+                    problem = fr.problem if fr is not None and fr.problem else _problem_from_result("face", res)
+                    if self._reframe("face", problem, t, "smile"):
+                        return
+                self.face = self._with_framing("face", res)
                 self._emit("result", check="face", quality=self.face.quality, data=self.face)
                 self._arms_t0 = t
                 self._enter("arms_wait", t, script.ARMS_RAISE)
         elif s == "arms_wait":
             m = self._arm_meter
+            fr = self._meter_framing(m)
             if m is not None and m.arms_up():
                 self._enter("arms_hold", t, script.ARMS_HOLD, seconds=tm.arms_hold_s)
                 hs = m.hold_start()
                 if hs is not None:  # time the bar from when the meter saw the arms come up
                     self.countdown = (self._arms_t0 + hs + tm.arms_hold_s, tm.arms_hold_s)
+            elif (fr is not None and not fr.ok and fr.seconds >= tm.reframe_persist_s
+                  and el >= (tm.reframe_retry_s if self.reframes["arms"] else tm.reframe_after_s)
+                  and self._reframe("arms", fr.problem, t, "wait")):
+                return
             elif m is None or el >= tm.arms_wait_timeout_s:
                 self._speak(script.ARMS_TIMEOUT.say)
                 self._end_arms(t)
         elif s == "arms_hold":
+            m = self._arm_meter
+            fr = self._meter_framing(m, during_hold=True)
+            if fr is not None and getattr(fr, "dropped", None):
+                self._hold_dropped = fr.dropped  # an arm vanished while moving down: a finding
+            # Once an arm has dropped out of view this hold is evidence: never restart it.
+            if (fr is not None and not fr.ok and fr.seconds >= tm.hold_lost_grace_s and not self._hold_dropped
+                    and self._reframe("arms", fr.problem, t, "hold")):
+                return
             end = self.countdown[0] if self.countdown else self._step_t + tm.arms_hold_s
             if t >= end + tm.arms_hold_margin_s:
+                res = self._read_arms()
+                # Arms lost often enough that the hold cannot be read: one more try after
+                # fixing the picture. Never when an arm came down early or vanished while
+                # moving down: those are findings, and they go straight to the decision.
+                if self._hold_dropped and isinstance(getattr(res, "detail", None), dict):
+                    res.detail["dropped_out_of_view"] = self._hold_dropped
+                if (res.quality in REFRAMEABLE and not (res.detail or {}).get("early_drop")
+                        and not self._hold_dropped and m is not None):
+                    fr = self._meter_framing(m, during_hold=True)
+                    problem = fr.problem if fr is not None and fr.problem else _problem_from_result("arms", res)
+                    if self._reframe("arms", problem, t, "hold"):
+                        return
+                self.arms = res
                 self._speak(script.ARMS_DONE.say)
                 self._end_arms(t)
         elif s == "sentence":
@@ -365,13 +458,82 @@ class CheckFlow:
             log.exception("[onset] face result failed")
             return _error("face", f"{type(e).__name__}")
 
+    def _read_arms(self) -> ArmResult:
+        if self.arms is not None:  # already an error from start()
+            return self.arms
+        try:
+            return self._arm_meter.result() if self._arm_meter is not None else _error("arms", "no meter")
+        except Exception as e:  # noqa: BLE001
+            log.exception("[onset] arm result failed")
+            return _error("arms", type(e).__name__)
+
+    # ------------------------------------------------------------------ framing retries
+
+    @staticmethod
+    def _meter_framing(meter: Any, **kw: Any) -> Any:
+        """The meter's live framing, or None if it has none (stubs, replays) or it fails."""
+        fn = getattr(meter, "framing", None) if meter is not None else None
+        if fn is None:
+            return None
+        try:
+            return fn(**kw)
+        except Exception:  # noqa: BLE001 - framing is advice; never break the call over it
+            log.debug("framing failed", exc_info=True)
+            return None
+
+    def _reframe(self, check: str, problem: str | None, t: float, phase: str) -> bool:
+        """Tell the person what to fix and run the step again. False once the retries for this
+        step are used up: the step then carries on exactly as it did before retries existed,
+        so an unreadable step still ends as UNCLEAR (caregiver + 911)."""
+        tm, n = self.timing, self.reframes[check]
+        if n >= tm.max_reframes:
+            if check not in self._framing_gave_up:
+                self._framing_gave_up.add(check)
+                log.info("[onset] %s framing (%s): no retries left", check, problem)
+                self._emit("framing", check=check, phase=phase, problem=problem, action="give_up",
+                           retry=n, max_retries=tm.max_reframes, caption=self.caption)
+            return False
+        self.reframes[check] = n + 1
+        self._framing_last[check] = problem
+        line = script.framing_line(check, problem)
+        log.info("[onset] %s framing (%s, %s): retry %d of %d", check, phase, problem, n + 1, tm.max_reframes)
+        self._emit("framing", check=check, phase=phase, problem=problem, action="retry",
+                   retry=n + 1, max_retries=tm.max_reframes, caption=line.caption)
+        if check == "arms":
+            self._cap_bonus += tm.arms_wait_timeout_s + tm.arms_hold_s
+            self._reset_meter(self._arm_meter)
+            self._arms_t0 = t  # Frame.t restarts for the new attempt
+            self._hold_dropped = None
+            if phase == "hold":
+                self._speak(script.ARMS_RESTART.say)
+            self._enter("arms_wait", t, line)
+        else:
+            self._cap_bonus += (tm.face_reframe_s + tm.neutral_lead_s + tm.neutral_measure_s
+                                + tm.smile_lead_s + tm.smile_measure_s)
+            self._reset_meter(self._face_meter)
+            self._enter("face_reframe", t, line, seconds=tm.face_reframe_s)
+        return True
+
+    @staticmethod
+    def _reset_meter(meter: Any) -> None:
+        if meter is not None and hasattr(meter, "reset"):
+            try:
+                meter.reset()
+            except Exception:  # noqa: BLE001
+                log.exception("[onset] meter reset failed")
+
+    def _with_framing(self, check: str, res: Any) -> Any:
+        """Note the retries in the result's detail, for decide's reasons and the logs."""
+        n = self.reframes[check]
+        if n and isinstance(getattr(res, "detail", None), dict):
+            res.detail["framing_retries"] = n
+            res.detail["framing_problem"] = self._framing_last[check]
+        return res
+
     def _end_arms(self, t: float) -> None:
         if self.arms is None:
-            try:
-                self.arms = self._arm_meter.result() if self._arm_meter is not None else _error("arms", "no meter")
-            except Exception as e:  # noqa: BLE001
-                log.exception("[onset] arm result failed")
-                self.arms = _error("arms", type(e).__name__)
+            self.arms = self._read_arms()
+        self.arms = self._with_framing("arms", self.arms)
         self._emit("result", check="arms", quality=self.arms.quality, data=self.arms)
         self._enter("sentence", t, script.sentence_prompt(self.sentence), seconds=self.timing.sentence_lead_s)
 
@@ -425,7 +587,7 @@ class CheckFlow:
             self._emit("result", check="speech", quality=self.speech.quality, data=self.speech)
             results = CheckResults(face=self.face, arms=self.arms, speech=self.speech,
                                    started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
-            if self.baseline is None:
+            if self.baseline is None and self.save_baseline:
                 await self._first_run(results)
             else:
                 await self._compare(results)
@@ -462,39 +624,74 @@ class CheckFlow:
     async def _compare(self, results: CheckResults) -> None:
         decision = self._decide.decide(results, self.baseline)
         self.decision = decision
-        self._emit("decision", outcome=decision.outcome, reasons=list(decision.reasons), baseline_used=True)
+        self._emit("decision", outcome=decision.outcome, reasons=list(decision.reasons),
+                   baseline_used=self.baseline is not None)
         if decision.outcome in (Outcome.ESCALATE, Outcome.UNCLEAR):
-            # The 911 line is shown and said first; the text can take ~50 s (retries,
-            # re-reads), so it runs in the background and reports through its own event.
+            # The 911 line ("I am adding your caregiver to this call now") is shown and said
+            # first; inviting the caregiver and the text can take ~50 s (retries, re-reads),
+            # so they run in the background and report through their own events.
             with self._lock:
                 self._close(script.CLOSE_ESCALATE if decision.outcome is Outcome.ESCALATE else script.CLOSE_UNCLEAR)
-            task = asyncio.create_task(self._text_caregiver(decision), name="onset-caregiver")
+            task = asyncio.create_task(self._escalate(decision), name="onset-caregiver")
             self._background.add(task)
             task.add_done_callback(self._background.discard)
         else:
             with self._lock:
                 self._close(script.CLOSE_NO_CHANGE)
 
-    async def _text_caregiver(self, decision: Decision) -> None:
+    async def _escalate(self, decision: Decision) -> None:
+        """Bring the caregiver in (agent.py's hook: link, relay, text) or just text them."""
         try:
             text = self._decide.caregiver_summary(decision, self.patient_name)
         except Exception as e:  # noqa: BLE001
             self._emit("caregiver", text="", status="failed", detail=f"summary failed: {type(e).__name__}")
             self._end_run("complete")
             return
-        phone = self.caregiver_phone or "+15555550100"  # placeholder for a dry run
-        dry = not self.caregiver_send
         try:
-            res = await self._send(phone, text, dry)
-            status = res.get("status", "failed")
-            status = "dry_run" if status == "dry_run" else ("sent" if res.get("accepted") else "failed")
-            detail = res.get("detail") or res.get("error") or ""
+            if self._escalate_fn is not None:
+                res = await self._escalate_fn(decision, text)
+            else:
+                from onset.caregiver import notify_caregiver
+
+                res = await notify_caregiver(sink=self, summary=text, caregiver_phone=self.caregiver_phone,
+                                             caregiver_name=self.caregiver_name, patient_name=self.patient_name,
+                                             send=self._send, force_dry=self._force_dry)
+            status, detail = res.get("status", "failed"), res.get("detail", "")
         except Exception as e:  # noqa: BLE001
+            log.exception("[onset] escalation failed")
             status, detail = "failed", type(e).__name__
-        if dry and not self.caregiver_phone:
-            detail = "dry run: no caregiver phone set (ONSET_CAREGIVER_PHONE)"
         self._emit("caregiver", text=text, status=status, detail=detail)
         self._end_run("complete")
+
+    # A sink-like face for onset.actions.record / notify_caregiver: events go through _emit.
+    def emit(self, type_: str, **fields: Any) -> None:
+        self._emit(type_, **fields)
+
+    # ------------------------------------------------------------------ caregiver presence
+
+    def caregiver_update(self, status: str, detail: str = "") -> None:
+        """The caregiver was invited / joined / started talking / left (from agent.py)."""
+        rank = {"": 0, "failed": 0, "invited": 1, "joined": 2, "talking": 3, "left": 1}
+        with self._lock:
+            if status == self.caregiver_status:
+                return
+            if status == "invited" and rank[self.caregiver_status] >= rank["invited"]:
+                return  # the caregiver was quicker than the invitation's bookkeeping
+            prev, self.caregiver_status = self.caregiver_status, status
+            self._emit("caregiver_join", status=status, detail=detail)
+            if status == "joined" and prev in ("", "invited"):
+                self.caption = script.CAREGIVER_JOINED.caption
+                self._speak(script.CAREGIVER_JOINED.say)
+            elif status == "talking":
+                self.caption = script.CAREGIVER_TALKING.caption
+                self._speak(script.CAREGIVER_TALKING.say)
+            elif status == "left" and self.outcome_line is not None:
+                self.caption = self.outcome_line.caption
+                self._cg_frame = None
+
+    def caregiver_frame(self, rgb: np.ndarray, t: float) -> None:
+        """The caregiver's latest camera frame, drawn picture-in-picture for the caller."""
+        self._cg_frame = (t, rgb)
 
     async def wait_background(self, timeout: float = 90.0) -> None:
         """Wait for background work (the caregiver text). Live calls need not; replays and tests do."""
@@ -556,9 +753,37 @@ class CheckFlow:
         prog = script.PROGRESS.get(state)
         if prog:
             overlay.composite(img, overlay.pill_layer(f"Step {prog[0]} of 3 · {prog[1]}", w, h, other))
+        if self.caregiver_status in ("invited", "joined", "talking"):
+            self._draw_caregiver(img, t, other)
         if self.sink is not None:
             self.sink.frame(img)
         return img
+
+
+    def _draw_caregiver(self, img: np.ndarray, t: float, pill_pos: str) -> None:
+        """Caregiver status pill, and their camera picture-in-picture while it is fresh."""
+        try:
+            label = {"invited": "Calling your caregiver…", "joined": "Caregiver joined",
+                     "talking": "Caregiver on the call"}[self.caregiver_status]
+            overlay.composite(img, overlay.pill_layer(label, self.out_w, self.out_h, pill_pos))
+            cg = self._cg_frame
+            if cg is None or t - cg[0] > 1.5:
+                return
+            import cv2
+
+            h, w = img.shape[:2]
+            pw = max(64, w // 4)
+            src = cg[1]
+            ph = int(round(pw * src.shape[0] / max(1, src.shape[1])))
+            ph = min(ph, h // 2)
+            pip = cv2.resize(np.ascontiguousarray(src[..., :3]), (pw, ph), interpolation=cv2.INTER_AREA)
+            x0, y0 = w - pw - 12, (h - ph) // 2
+            img[y0 - 2:y0 + ph + 2, x0 - 2:x0 + pw + 2, :3] = 255
+            img[y0:y0 + ph, x0:x0 + pw, :3] = pip
+            if img.shape[2] == 4:
+                img[y0 - 2:y0 + ph + 2, x0 - 2:x0 + pw + 2, 3] = 255
+        except Exception:  # noqa: BLE001 - the picture is optional
+            log.debug("caregiver draw failed", exc_info=True)
 
 
 def _small(d: dict) -> dict:
