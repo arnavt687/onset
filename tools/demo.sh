@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 # One command for demo day. Run inside WSL Ubuntu from anywhere:
 #
-#   tools/demo.sh                 checks, then agent + chert dev + dashboard; Ctrl+C stops all three
-#   tools/demo.sh --check         only the checks (keys present, clock offset, line free); starts nothing
+#   tools/demo.sh                 tools/doctor.py --warm, then agent + chert dev + dashboard; Ctrl+C stops all three
+#   tools/demo.sh --check         only tools/doctor.py (keys, voice, models, LiveKit, Chert line, clock); starts nothing
 #   tools/demo.sh --replay DIR [-- --fast --no-voice ...]
 #                                 dashboard + tools/replay_flow.py DIR (no call, no Chert line);
 #                                 anything after -- goes to replay_flow.py
 # Options: --port N (dashboard, default 8765)  --open (open the dashboard in the Windows browser)
-#          --skip-clock (start even if the clock check cannot run or warns)
+#          --skip-clock (start even if a clock check fails)
 #
-# Never prints key values: tools/envcheck.sh reports names only, and from `chert doctor` only the
-# clock, line, worker, line_free and minutes checks are shown (never the signed-in account).
+# Never prints key values: tools/doctor.py reports names only, masks phone numbers and never shows
+# the signed-in Chert account. Python: $PY, else this checkout's .venv (tools/setup.sh), else ~/onset/.venv.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 ROOT=$PWD
-PY=${PY:-$HOME/onset/.venv/bin/python}
-[ -x "$PY" ] || PY=$ROOT/.venv/bin/python
+if [ -z "${PY:-}" ]; then
+  PY=$ROOT/.venv/bin/python
+  [ -x "$PY" ] || PY=$HOME/onset/.venv/bin/python
+fi
+[ -x "$PY" ] || { echo "[demo] no Python virtualenv: run tools/setup.sh" >&2; exit 1; }
 PORT=8765
 MODE=live
 OPEN=0
@@ -26,7 +29,7 @@ LOGS=$ROOT/runs/demo-logs
 STAMP=$(date +%Y%m%d-%H%M%S)
 
 REPLAY_ARGS=()
-usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; }
 say() { printf '\033[1m[demo]\033[0m %s\n' "$*"; }
 die() { printf '\033[31m[demo] %s\033[0m\n' "$*" >&2; exit 1; }
 
@@ -48,62 +51,17 @@ chmod 700 "$ROOT/runs" "$LOGS" 2>/dev/null
 
 # ---------------------------------------------------------------- checks
 
-check_keys() {
-  [ -f .env.local ] || die ".env.local is missing (copy .env.example and fill it in privately)"
-  local report missing=() k
-  report=$(bash tools/envcheck.sh)
-  for k in LIVEKIT_URL LIVEKIT_API_KEY LIVEKIT_API_SECRET AGENT_NAME; do
-    grep -q "^$k: set" <<<"$report" || missing+=("$k")
-  done
-  grep -qE '^(ELEVENLABS_API_KEY|ELEVEN_API_KEY|GOOGLE_API_KEY|OPENAI_API_KEY): set' <<<"$report" \
-    || missing+=("a voice key (ELEVENLABS_API_KEY, GOOGLE_API_KEY or OPENAI_API_KEY)")
-  if [ ${#missing[@]} -gt 0 ]; then
-    printf '[demo] missing in .env.local: %s\n' "${missing[@]}" >&2
-    exit 1
-  fi
-  say "keys: $(grep -c ': set' <<<"$report") set in .env.local (LiveKit, agent name and a voice key present)"
-}
-
-# Prints the chosen doctor checks; sets LINE_NUMBER and CLOCK_OK. Never prints the account.
-check_doctor() {
-  local out=$LOGS/doctor-$STAMP.json
-  say "asking Chert for the clock offset and line state (chert doctor)..."
-  timeout 90 bash tools/chert.sh doctor --json >"$out" 2>"$out.err"
-  local parsed
-  parsed=$("$PY" - "$out" <<'EOF'
-import json, re, sys
-checks = {}
-for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
-    try:
-        rec = json.loads(line)
-    except ValueError:
-        continue
-    for c in rec.get("checks") or []:
-        checks[c.get("name")] = c
-email = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
-for name in ("clock", "line", "worker", "line_free", "minutes"):
-    c = checks.get(name)
-    if c:
-        fix = f"  -> {c['fix']}" if c.get("fix") else ""
-        print(email.sub("<account>", f"CHECK {name} {c.get('status')}: {c.get('detail', '')}{fix}"))
-clock = checks.get("clock", {}).get("status")
-print("CLOCK_OK=" + ("1" if clock == "pass" else "0"))
-print("LINE_FREE=" + str(checks.get("line_free", {}).get("status", "unknown")))
-m = re.search(r"\+?\d[\d ()-]{7,}\d", checks.get("line", {}).get("detail", ""))
-print("LINE=" + (m.group(0) if m else ""))
-EOF
-)
-  grep '^CHECK ' <<<"$parsed" | sed 's/^CHECK /[demo]   /'
-  CLOCK_OK=$(sed -n 's/^CLOCK_OK=//p' <<<"$parsed")
-  LINE_NUMBER=$(sed -n 's/^LINE=//p' <<<"$parsed")
-  LINE_FREE=$(sed -n 's/^LINE_FREE=//p' <<<"$parsed")
-  if [ "$CLOCK_OK" != 1 ]; then
-    if [ "$SKIP_CLOCK" = 1 ]; then
-      say "clock check did not pass; continuing because of --skip-clock"
-    else
-      die "clock check did not pass (or Chert could not be reached; see above). Calls are declined when this computer is >0.25 s ahead of Chert. In WSL: 'sudo hwclock -s' or 'wsl --shutdown' from Windows; on Windows: Settings > Time > Sync now. Then run again (or pass --skip-clock)."
-    fi
-  fi
+# tools/doctor.py: every check, PASS/WARN/FAIL lines, exit 1 on any FAIL. Sets LINE_NUMBER.
+run_doctor() {
+  local line_file=$LOGS/line-$STAMP rc
+  local args=(--port "$PORT" --line-file "$line_file" "$@")
+  [ "$SKIP_CLOCK" = 1 ] && args+=(--skip-clock)
+  say "checking everything (tools/doctor.py${*:+ $*})..."
+  "$PY" tools/doctor.py "${args[@]}"
+  rc=$?
+  LINE_NUMBER=$(cat "$line_file" 2>/dev/null)
+  rm -f "$line_file"
+  return $rc
 }
 
 already_running() {
@@ -190,11 +148,10 @@ banner() {
 # ---------------------------------------------------------------- modes
 
 if [ "$MODE" = check ]; then
-  check_keys
-  check_doctor
+  run_doctor; rc=$?
   r=$(already_running); [ -n "$r" ] && say "already running (would block a start):" && echo "$r"
   say "checks done; nothing was started"
-  exit 0
+  exit $rc
 fi
 
 if [ "$MODE" = replay ]; then
@@ -216,9 +173,8 @@ fi
 # live
 r=$(already_running)
 [ -n "$r" ] && { echo "$r" >&2; die "agent, chert dev or a dashboard is already running: stop it first (tools/stop.sh, pkill -f tools/dashboard.py)"; }
-check_keys
-check_doctor
-[ "$LINE_FREE" = fail ] && die "another chert dev session holds the line (see line_free above). Wait for it to end or ask its owner to stop it; this script never uses --takeover."
+# --warm puts every scripted line in the TTS cache, so Onset greets within Chert's 10 s deadline.
+run_doctor --warm || die "fix the FAIL lines above, then run again (tools/demo.sh --check re-checks; a busy line_free means another chert dev session holds the line: this script never uses --takeover)"
 trap stop_all INT TERM
 
 say "starting the agent (log: $LOGS/agent-$STAMP.log)..."

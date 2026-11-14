@@ -11,7 +11,7 @@ import pytest
 from onset import chert_api as c
 from onset.chert_api import ChertConfig, HttpResponse, TransportError
 
-PROJECT = "38e8b4b9-5811-456e-9834-cac1d71bab63"
+PROJECT = "0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6"  # made up
 LINE = "11111111-2222-4333-8444-555555555555"
 MSG = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 CALL = "99999999-8888-4777-8666-555555555555"

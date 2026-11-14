@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-screen overview of open PRs: files, size, checks, mergeability, and a safety/secret scan of each diff.
-cd ~/onset
+cd "$(dirname "$0")/.."
 for n in "$@"; do
   echo "=== PR #$n"
   gh pr view "$n" --json title,headRefName,isDraft,mergeable,additions,deletions,statusCheckRollup \

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Commit any tracked-tool changes on main, scan for secrets, push, and show PR + CI state.
 set -euo pipefail
-cd ~/onset
+cd "$(dirname "$0")/.."
 msg="${1:-Update tools}"
 git add -A
 git ls-files --cached | grep -qE '^\.env\.local$|^models/|^recordings/|^baselines/' && { echo "private file staged; aborting"; exit 1; }

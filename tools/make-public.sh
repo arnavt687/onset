@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-gh api -X PATCH repos/arnavt687/onset -f visibility=public -q '.html_url + " " + .visibility'
+cd "$(dirname "$0")/.."
+gh api -X PATCH "repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)" -f visibility=public -q '.html_url + " " + .visibility'

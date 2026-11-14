@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Merge one origin branch into main, run the tests, push. Usage: tools/merge-branch.sh <branch> [<branch>...]
 set -uo pipefail
-cd ~/onset
+cd "$(dirname "$0")/.."
 git fetch -q origin
 git checkout -q main && git pull -q --ff-only origin main || { echo "main not fast-forwardable"; exit 1; }
 for b in "$@"; do

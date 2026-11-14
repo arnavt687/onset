@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Merge the piece branches into main in dependency order, dropping per-session scratch scripts.
 set -uo pipefail
-cd ~/onset
+cd "$(dirname "$0")/.."
 git fetch -q origin
 git checkout -q main && git pull -q --ff-only origin main
 for b in harness decide face arms speech chert-api; do

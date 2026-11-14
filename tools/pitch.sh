@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p web/pitch/vendor/models web/pitch/media
 for m in face_landmarker.task pose_landmarker_full.task; do
-  src="${ONSET_MODELS:-$HOME/onset/models}/$m"
+  src="${ONSET_MODELS:-models}/$m"; [ -f "$src" ] || src="$HOME/onset/models/$m"
   [ -f "web/pitch/vendor/models/$m" ] || { [ -f "$src" ] && cp "$src" web/pitch/vendor/models/; } || true
 done
 PORT="${1:-8770}"
