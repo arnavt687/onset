@@ -94,16 +94,35 @@ def _openai_tts():
     return openai.TTS(model="gpt-4o-mini-tts", voice="coral", instructions=VOICE_STYLE)
 
 
+_VOICES = {
+    "elevenlabs": (_eleven_tts, None),
+    "gemini": (_gemini_tts, None),
+    "openai": (_openai_tts, "OPENAI_API_KEY"),
+}
+
+
+def _voice_order() -> list:
+    """ONSET_VOICE_ORDER, e.g. "gemini,elevenlabs,openai" (default: elevenlabs, gemini, openai).
+    Unknown names are ignored; voices left out are appended in the default order."""
+    wanted = [v.strip().lower() for v in os.environ.get("ONSET_VOICE_ORDER", "").split(",") if v.strip()]
+    order = [v for v in wanted if v in _VOICES]
+    return order + [v for v in _VOICES if v not in order]
+
+
 def make_tts():
-    """The first configured voice: ElevenLabs, then Gemini, then OpenAI."""
-    return _eleven_tts() or _gemini_tts() or _openai_tts()
+    """The first configured voice in ONSET_VOICE_ORDER (default: ElevenLabs, then Gemini, then OpenAI)."""
+    for name in _voice_order():
+        engine = _VOICES[name][0]()
+        if engine is not None:
+            return engine
+    return None
 
 
 def make_tts_chain() -> list:
     """Every configured voice, best first: the first speaks, the others take over a line when
     it fails or is slow (onset.voice.Speaker). Never empty."""
     chain = []
-    for build, needs in ((_eleven_tts, None), (_gemini_tts, None), (_openai_tts, "OPENAI_API_KEY")):
+    for build, needs in (_VOICES[name] for name in _voice_order()):
         if needs and not os.environ.get(needs):
             continue
         try:
