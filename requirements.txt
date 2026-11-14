@@ -9,3 +9,5 @@ livekit-protocol==1.1.31
 numpy==2.5.4
 opencv-python-headless==5.0.0.93
 python-dotenv==1.2.4
+mediapipe==1.2.3
+pytest==9.2.0

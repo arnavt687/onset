@@ -17,3 +17,6 @@ baselines/
 
 # Local logs
 *.log
+
+# MediaPipe models (downloaded by tools/setup-shared.sh)
+models/
