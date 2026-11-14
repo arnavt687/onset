@@ -549,8 +549,7 @@ class CheckFlow:
         img = overlay.letterbox(src, w, h) if caller is not None else overlay.blank(w, h)
         pos = CAPTION_POS.get(state, "bottom")
         other = "bottom" if pos == "top" else "top"
-        layer, _ = overlay.caption_layer(caption, w, h, pos)
-        overlay.composite(img, layer)
+        overlay.draw_caption(img, caption, pos, t)
         if countdown:
             t_end, secs = countdown
             overlay.countdown_bar(img, (t_end - t) / secs if secs else 0.0, other)
