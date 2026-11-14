@@ -10,7 +10,7 @@ The orchestrator keeps this file current.
 | Session id | Role | Watch? |
 |---|---|---|
 | local_d6306b8b-9726-404e-a561-955849962a28 | Orchestrator (main session) | yes |
-| local_e7ebf3e6-c8ac-4d27-923e-74acfa86c28d | chert-voice: why callers hear no agent audio | yes |
+| local_e7ebf3e6-c8ac-4d27-923e-74acfa86c28d | chert-voice: why callers hear no agent audio (DONE, PR #16 merged: Chert's Mac audio broken both ways, `audio_ready:false`; see docs/chert-audio.md) | no |
 | local_0053261f-bc4f-46be-a326-8055b2809ecc | polish-pizzazz: cinematic HTML deck with 3D + live demo, polish of overlay, dashboard, README, video assets (branch `polish/pizzazz`) | yes |
 
 Finished, no longer watched: onset-face, onset-arms, onset-speech, onset-decide, onset-harness,
