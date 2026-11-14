@@ -25,7 +25,7 @@ PID=$!
 for _ in $(seq 1 60); do grep -q "registered worker" "$LOG" && break; sleep 1; done
 grep -q "registered worker" "$LOG" || { echo "agent did not register"; tail -20 "$LOG"; kill $PID; exit 1; }
 "$PY" tools/fake_escalation.py "$@"; rc=$?
-kill -INT $PID; sleep 2; kill -INT $PID 2>/dev/null; sleep 3; kill -TERM $PID 2>/dev/null
+kill -INT $PID; for _ in $(seq 1 60); do kill -0 $PID 2>/dev/null || break; sleep 1; done; kill -TERM $PID 2>/dev/null
 echo "--- agent log: onset lines and errors"
 grep -oE '"message": "[^"]*(\[onset\]|rror|Traceback)[^"]{0,200}' "$LOG" | grep -v "caller video [0-9]" | tail -40
 exit $rc

@@ -222,3 +222,99 @@ def test_live_lock_released_after_close_and_archive_has_no_link(tmp_path):
     assert not (tmp_path / "live.lock").exists()
     assert (tmp_path / "r1" / "events.jsonl").exists() and not (tmp_path / "r1" / "caregiver_link.txt").exists()
     assert events.take_live(tmp_path, "next") is True
+
+
+# ---------------------------------------------------------------- steps wait for their spoken line
+
+
+class PacedSay:
+    """A say function that reports when a line has 'played', after `secs` of flow time."""
+
+    def __init__(self, secs):
+        self.secs, self.pending, self.lines = secs, [], []
+
+    def __call__(self, text, on_done=None):
+        self.lines.append(text)
+        if on_done:
+            self.pending.append((self.now + self.secs, on_done))
+
+    now = 0.0
+
+    def advance(self, t):
+        self.now = t
+        for due, cb in list(self.pending):
+            if due <= t:
+                self.pending.remove((due, cb))
+                cb()
+
+
+def _paced(tmp_path, secs, **timing):
+    from onset.flow import Timing
+
+    say = PacedSay(secs)
+    flow = _flow(tmp_path, say=say, timing=Timing(**timing))
+    return flow, say
+
+
+def _steps(flow):
+    return [(e["name"]) for e in flow.events if e["type"] == "step"]
+
+
+def test_step_waits_for_its_line(tmp_path):
+    flow, say = _paced(tmp_path, 8.0)  # the greeting takes 8 s to say; greet_s is 5
+    t = 0.0
+    flow.start(t)
+    while t < 12.0:
+        say.advance(t)
+        flow.tick(t)
+        t += 0.1
+    # greet ends 5 s after its line finished (8 s), not at 5 s
+    assert _steps(flow)[-1] == "greet"
+    while t < 13.5:
+        say.advance(t)
+        flow.tick(t)
+        t += 0.1
+    assert "face_neutral" in _steps(flow)
+    assert flow._hold_total > 7.0
+
+
+def test_hold_is_capped_and_not_counted_in_the_time_limit(tmp_path):
+    flow, say = _paced(tmp_path, 1000.0, speech_hold_max_s=3.0)  # the speaker never finishes
+    t = 0.0
+    flow.start(t)
+    while t < 9.0:
+        say.advance(t)
+        flow.tick(t)
+        t += 0.1
+    assert "face_neutral" in _steps(flow)  # 3 s hold + 5 s greet
+
+
+def test_sentence_go_comes_after_the_prompt_is_heard(tmp_path):
+    from onset.flow import Timing
+
+    flow, say = _paced(tmp_path, 9.0, greet_s=0.5, neutral_lead_s=0.1, neutral_measure_s=0.1,
+                       smile_lead_s=0.1, smile_measure_s=0.1, sentence_lead_s=1.0, sentence_record_s=1.0)
+    frame = np.zeros((72, 128, 3), np.uint8)
+    t = 0.0
+    flow.start(t)
+    prompt_at = go_at = None
+    while t < 120 and go_at is None:
+        say.advance(t)
+        flow.on_frame(frame, t)
+        flow.tick(t)
+        if prompt_at is None and any(l.startswith("Last one") for l in say.lines):
+            prompt_at = t
+        if any(e["type"] == "step" and str(e.get("caption", "")).startswith("Say it now") for e in flow.events):
+            go_at = t
+        t += 0.05
+    assert prompt_at is not None and go_at is not None
+    assert go_at - prompt_at >= 9.0 + 1.0 - 0.1  # the 9 s prompt, then the 1 s lead
+
+
+def test_plain_say_functions_never_hold(tmp_path):
+    said = []
+    flow = _flow(tmp_path, say=said.append)
+    assert not flow._say_reports
+    flow.start(0.0)
+    flow.tick(5.1)
+    assert "face_neutral" in _steps(flow)

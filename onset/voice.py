@@ -117,7 +117,7 @@ class Speaker:
         self.tts, self.sink, self.play, self.enabled = tts, sink, play, enabled and tts is not None
         self.fallbacks = [f for f in fallbacks if f is not None and f is not tts]
         self.timeout_s = TTS_TIMEOUT_S if timeout_s is None else timeout_s
-        self._queue: asyncio.Queue[str | None] = asyncio.Queue()
+        self._queue: asyncio.Queue[tuple[str, Callable[[], None] | None] | None] = asyncio.Queue()
         self._task: asyncio.Task | None = None
         self._first = True
         self._failures: dict[int, int] = {}  # engine id -> failures this run
@@ -164,12 +164,15 @@ class Speaker:
         if self._task is None:
             self._task = asyncio.create_task(self._run(), name="onset-speaker")
 
-    def say(self, text: str) -> None:
+    def say(self, text: str, on_done: Callable[[], None] | None = None) -> None:
+        """Queue a line. `on_done` runs once it has played (or failed to)."""
         if not text:
+            if on_done:
+                on_done()
             return
         if self._task is None:
             self.start()
-        self._queue.put_nowait(text)
+        self._queue.put_nowait((text, on_done))
 
     async def warm(self, texts: list[str]) -> None:
         """Fill the cache ahead of the call, so the greeting starts instantly."""
@@ -183,28 +186,39 @@ class Speaker:
 
     async def _run(self) -> None:
         while True:
-            text = await self._queue.get()
-            if text is None:
+            item = await self._queue.get()
+            if item is None:
                 return
-            rel = None
-            pcm = b""
-            if self.enabled:
-                budget = FIRST_LINE_BUDGET_S if self._first else None
-                self._first = False
-                pcm = await self.synth(text, budget)
-            if pcm and self.sink is not None:
-                try:
-                    path, rel = self.sink.audio_path()
-                    write_wav(path, pcm)
-                except Exception:  # noqa: BLE001
-                    rel = None
-            if self.sink is not None:
-                self.sink.emit("say", text=text, audio=rel)
-            if pcm and self.play is not None:
-                try:
-                    await self.play(text, pcm, RATE)
-                except Exception:  # noqa: BLE001
-                    log.exception("[onset] playback failed")
+            text, on_done = item
+            try:
+                await self._one(text)
+            finally:
+                if on_done is not None:
+                    try:
+                        on_done()
+                    except Exception:  # noqa: BLE001
+                        log.exception("[onset] on_done failed")
+
+    async def _one(self, text: str) -> None:
+        rel = None
+        pcm = b""
+        if self.enabled:
+            budget = FIRST_LINE_BUDGET_S if self._first else None
+            self._first = False
+            pcm = await self.synth(text, budget)
+        if pcm and self.sink is not None:
+            try:
+                path, rel = self.sink.audio_path()
+                write_wav(path, pcm)
+            except Exception:  # noqa: BLE001
+                rel = None
+        if self.sink is not None:
+            self.sink.emit("say", text=text, audio=rel)
+        if pcm and self.play is not None:
+            try:
+                await self.play(text, pcm, RATE)
+            except Exception:  # noqa: BLE001
+                log.exception("[onset] playback failed")
 
     async def aclose(self) -> None:
         if self._task is not None:

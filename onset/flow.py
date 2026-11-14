@@ -79,7 +79,10 @@ class Timing:
     sentence_lead_s: float = 6.0  # "lower your arms" + hear/read the sentence
     sentence_record_s: float = 7.0
     speech_timeout_s: float = 15.0
-    cap_s: float = 90.0  # from start(); everything unfinished is NO_RESPONSE
+    cap_s: float = 90.0  # from start(), not counting speech holds; everything unfinished is NO_RESPONSE
+    # A step's timer waits while its spoken instruction is still playing (so "Say it now" comes
+    # after the caller has heard the sentence), for at most this long per step.
+    speech_hold_max_s: float = 12.0
     live_interval_s: float = 0.2  # live metric events, ~5 per second
     # Framing retries (docs/thresholds.md, "Framing retries"): the camera cannot see what a
     # step measures, so say how to fix it and run the step again, at most max_reframes times
@@ -92,6 +95,10 @@ class Timing:
     face_reframe_s: float = 4.0  # the fix-it caption on screen before the face step re-runs
     face_lost_fraction: float = 0.75  # face missing for this much of the neutral window: re-run now
 
+
+# Steps whose timer waits for their spoken instruction to finish (arms_hold is timed by the
+# arm meter from when the arms came up, so it never waits).
+SPEECH_HOLD_STEPS = ("greet", "face_reframe", "face_neutral", "face_smile", "arms_wait", "sentence")
 
 STEP_ORDER = ["greet", "face_neutral", "face_smile", "arms_wait", "arms_hold", "sentence",
               "deciding", "closing"]
@@ -207,6 +214,12 @@ class CheckFlow:
         # Whether a real text may be sent is decided by the safety gate (onset.actions:
         # ONSET_LIVE_ACTIONS=1 plus a caregiver phone). caregiver_send=False forces a dry run.
         self._force_dry = caregiver_send is False
+        import inspect
+
+        try:
+            self._say_reports = say is not None and "on_done" in inspect.signature(say).parameters
+        except (TypeError, ValueError):
+            self._say_reports = False
         self._escalate_fn = escalate  # agent.py: caregiver link + relay + text; None: text only
         self.save_baseline = save_baseline  # False for an unidentified caller
         self.caregiver_status = ""  # "" | invited | joined | talking | left
@@ -229,7 +242,12 @@ class CheckFlow:
         self.caption = ""
         self.countdown: tuple[float, float] | None = None  # (t_end, seconds)
         self.t0: float | None = None
-        self._step_t = 0.0  # when the current step began
+        self._step_t = 0.0  # when the current step began (moved on while its line is playing)
+        self._enter_t = 0.0  # when the current step really began
+        self._step_n = 0
+        self._awaiting_line = False  # the current step's instruction is still playing
+        self._hold_total = 0.0  # seconds steps stood still for speech (not counted in cap_s)
+        self._last_tick: float | None = None
         self._measure_t: float | None = None  # when measuring began within the step
         self._arms_t0 = 0.0
         self._last_live = -1e9
@@ -262,22 +280,45 @@ class CheckFlow:
             except Exception:  # noqa: BLE001
                 log.exception("[onset] event sink failed")
 
-    def _speak(self, text: str) -> None:
+    def _speak(self, text: str, on_done: Callable[[], None] | None = None) -> None:
+        """Say a line. `on_done` runs once it has finished playing (at once if it cannot be
+        played or the say function cannot report that)."""
         if not text:
+            if on_done:
+                on_done()
             return
         if self._say_fn is None:
             self._emit("say", text=text, audio=None)
+            if on_done:
+                on_done()
             return
         try:
-            self._say_fn(text)  # the speaker emits the `say` event with its audio file
+            if on_done is not None and self._say_reports:
+                self._say_fn(text, on_done=on_done)  # onset.voice.Speaker.say
+            else:
+                self._say_fn(text)  # the speaker emits the `say` event with its audio file
+                if on_done:
+                    on_done()
         except Exception:  # noqa: BLE001 - never break the flow over audio
             log.exception("[onset] say failed")
             self._emit("say", text=text, audio=None)
+            if on_done:
+                on_done()
+
+    def _line_done(self, step_n: int) -> Callable[[], None]:
+        def done() -> None:
+            with self._lock:
+                if self._step_n == step_n:
+                    self._awaiting_line = False
+        return done
 
     def _enter(self, name: str, t: float, line: script.Line | None = None, *,
                seconds: float | None = None, caption: str | None = None, speak: bool = True) -> None:
         self.state = name
         self._step_t = t
+        self._enter_t = t
+        self._step_n += 1
+        self._awaiting_line = False
         self._measure_t = None
         self.caption = caption if caption is not None else (line.caption if line else "")
         self.countdown = (t + seconds, seconds) if seconds else None
@@ -290,7 +331,29 @@ class CheckFlow:
             except Exception:  # noqa: BLE001
                 pass
         if speak and line is not None:
-            self._speak(line.say)
+            if name in SPEECH_HOLD_STEPS and line.say:
+                self._awaiting_line = True
+                self._speak(line.say, on_done=self._line_done(self._step_n))
+            else:
+                self._speak(line.say)
+
+    def _hold_for_speech(self, t: float) -> bool:
+        """While the step's instruction is still playing, its clock (and countdown) stands
+        still. Returns True while holding."""
+        last, self._last_tick = self._last_tick, t
+        if not self._awaiting_line or self.state not in SPEECH_HOLD_STEPS:
+            return False
+        if t - self._enter_t >= self.timing.speech_hold_max_s:
+            self._awaiting_line = False  # never stall a step on a stuck speaker
+            return False
+        dt = max(0.0, t - (last if last is not None else t))
+        self._step_t += dt
+        self._hold_total += dt
+        if self._measure_t is not None:
+            self._measure_t += dt
+        if self.countdown:
+            self.countdown = (self.countdown[0] + dt, self.countdown[1])
+        return True
 
     # ------------------------------------------------------------------ inputs
 
@@ -365,8 +428,10 @@ class CheckFlow:
         tm, s = self.timing, self.state
         if s in ("idle", "deciding", "closing") or self.needs_evaluation:
             return
-        if self.t0 is not None and t - self.t0 >= tm.cap_s + self._cap_bonus:
+        if self.t0 is not None and t - self.t0 - self._hold_total >= tm.cap_s + self._cap_bonus:
             self._finish_measuring(t, "time limit")
+            return
+        if self._hold_for_speech(t):
             return
         el = t - self._step_t
         if s == "greet" and el >= tm.greet_s:
@@ -715,7 +780,7 @@ class CheckFlow:
                 except Exception:  # noqa: BLE001
                     pass
 
-    MEASURING = ("face_neutral", "face_smile", "arms_wait", "arms_hold", "sentence")
+    MEASURING = ("face_reframe", "face_neutral", "face_smile", "arms_wait", "arms_hold", "sentence")
 
     def hangup(self, t: float) -> bool:
         """The caller hung up. Mid-check (after the greeting, before the decision), the rest

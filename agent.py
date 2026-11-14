@@ -249,7 +249,12 @@ class CallMedia:
                 if self.on_tick is not None:
                     self.on_tick(now)
                 fresh = self.latest is not None and now - self.last_caller_frame <= 1.0
-                img = self.flow.render(self.latest if fresh else None, now) if (fresh or self.flow.state != "idle") else placeholder(n)
+                if fresh or self.flow.state != "idle":
+                    # Rendering (captions, landmarks, the dashboard JPEG) runs off the event
+                    # loop: on it, it starved the agent's audio playout and speech fell behind.
+                    img = await asyncio.to_thread(self.flow.render, self.latest if fresh else None, now)
+                else:
+                    img = placeholder(n)
                 send(self.source, img)
             except Exception:  # noqa: BLE001 - keep the video alive whatever happens
                 log.exception("[onset] send tick failed")
