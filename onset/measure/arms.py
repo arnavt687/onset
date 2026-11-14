@@ -415,11 +415,13 @@ def _result(q: Quality, **detail) -> ArmResult:
 
 
 def resolve_model(path: str) -> str:
-    """Find the model: as given, relative to the repo, $ONSET_MODELS_DIR, or ~/onset/models."""
+    """Find the model: as given, relative to the repo, in $ONSET_MODELS (CI) or
+    $ONSET_MODELS_DIR, or in ~/onset/models (the shared folder in WSL)."""
     p = Path(path)
     repo = Path(__file__).resolve().parents[2]
     candidates = [p, repo / p]
-    for d in (os.environ.get("ONSET_MODELS_DIR"), str(Path.home() / "onset" / "models")):
+    env = [os.environ.get("ONSET_MODELS"), os.environ.get("ONSET_MODELS_DIR")]
+    for d in (*env, str(Path.home() / "onset" / "models")):
         if d:
             candidates.append(Path(d) / p.name)
     for c in candidates:
@@ -431,7 +433,7 @@ def resolve_model(path: str) -> str:
 class ArmMeter:
     """Feed frames for the whole "hold both arms up" step, then read the result.
 
-    `add()` runs MediaPipe (~25 ms on this CPU at the default 640 px input, see notes/arms.md),
+    `add()` runs MediaPipe (~16 ms on this CPU at the default 640 px input, see notes/arms.md),
     so call it from a worker thread in an async agent. `stride=2` runs the model on every
     other frame if that is ever needed; the maths copes with any frame rate.
     """
