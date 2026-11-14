@@ -12,6 +12,7 @@ A new caption rises and fades in over a fraction of a second (draw_caption); not
 from __future__ import annotations
 
 import functools
+import os
 import re
 import textwrap
 from pathlib import Path
@@ -30,6 +31,9 @@ FONT_FILES = [
 ]
 PILL_FONT_FILES = [str(_ASSETS / "Inter-SemiBold.ttf"), *FONT_FILES]
 MAX_LINES = 3
+PORTRAIT_MAX_LINES = 5  # an upright frame is narrower, and has the height to spare
+PORTRAIT_MIN_WIDTH = 540  # narrower than this and caption text is too coarse after upscaling
+SAFE_ASPECT = 3 / 4  # the squarest upright picture a caller's device is assumed to crop to
 
 # Palette (RGB), shared with web/pitch and web/dashboard.html
 INK = (8, 12, 22)          # caption panel
@@ -97,6 +101,55 @@ def _balanced(text: str, size: int, width_px: int, n: int) -> list[str]:
     return _wrap(text, size, hi)
 
 
+def scale(w: int, h: int) -> float:
+    """Text scale for a frame: 1.0 at the 640x360 reference, limited by the shorter dimension."""
+    return min(h / 360, w / 640)
+
+
+def safe_box(w: int, h: int) -> tuple[int, int]:
+    """(top, bottom) rows that every caption, pill and bar stays inside.
+
+    A Chert line set to video_framing "fill" scales Onset's picture to cover the caller's upright
+    FaceTime window and discards the overflow. An upright frame loses nothing sideways; if the
+    window is squarer than the frame (3:4 against 9:16), the top and bottom strips go. So text
+    keeps to the centred 3:4 region. A wide frame has no safe region under "fill": use portrait.
+    """
+    if h <= w:
+        return 0, h
+    safe_h = min(h, round(w / SAFE_ASPECT))
+    top = (h - safe_h) // 2
+    return top, top + safe_h
+
+
+def max_lines(w: int, h: int) -> int:
+    return PORTRAIT_MAX_LINES if h > w else MAX_LINES
+
+
+def output_size(env=None) -> tuple[int, int]:
+    """(width, height) of the video Onset sends, from OUT_WIDTH, OUT_HEIGHT and ONSET_FRAME.
+
+    ONSET_FRAME=portrait (the default) turns the size upright, whichever way round it was given,
+    and widens it to at least PORTRAIT_MIN_WIDTH: 640x360 becomes 540x960. Upright survives a
+    line whose video_framing is "fill" (see safe_box). ONSET_FRAME=landscape keeps it as given.
+    """
+    env = os.environ if env is None else env
+
+    def num(name: str, default: int) -> int:
+        try:
+            return max(16, int(str(env.get(name) or default).strip()))
+        except ValueError:
+            return default
+
+    w, h = num("OUT_WIDTH", 540), num("OUT_HEIGHT", 960)
+    if str(env.get("ONSET_FRAME") or "portrait").strip().lower() == "landscape":
+        return w, h
+    short, long = sorted((w, h))
+    if short < PORTRAIT_MIN_WIDTH:
+        long = round(long * PORTRAIT_MIN_WIDTH / short)
+        short = PORTRAIT_MIN_WIDTH
+    return short - short % 2, long - long % 2
+
+
 def is_alert(text: str) -> bool:
     """Captions that tell the caller to call 911 now get the alert treatment."""
     return bool(_ALERT_RE.search(text or ""))
@@ -107,13 +160,16 @@ def caption_layer(text: str, w: int, h: int, position: str = "bottom") -> tuple[
     """A transparent RGBA layer with the caption panel, plus layout info (for tests).
 
     The font starts at the size that gives MIN_CAP_PX capitals scaled to the frame height
-    (360 px reference) and grows if there is room; it never shrinks below the minimum, it
-    wraps instead (up to MAX_LINES lines; beyond that the last line is elided).
+    (640x360 reference) and grows if there is room; it never shrinks below the minimum, it
+    wraps instead (up to max_lines; beyond that the last line is elided). In an upright frame
+    the words stay inside safe_box and the panel's ink runs on to the frame edge.
     """
     layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     if not text:
         return np.asarray(layer).copy(), {"lines": [], "size": 0, "cap": 0, "box": None, "alert": False}
-    k = h / 360
+    k = scale(w, h)
+    limit = max_lines(w, h)
+    safe_top, safe_bottom = safe_box(w, h)
     min_cap = max(MIN_CAP_PX, round(MIN_CAP_PX * k))
     size = font_size_for_cap(min_cap)
     pad_x = max(10, w // 32)
@@ -124,10 +180,10 @@ def caption_layer(text: str, w: int, h: int, position: str = "bottom") -> tuple[
         if len(trial) <= 2 and len(trial) <= max(1, len(lines)):
             size, lines = bigger, trial
             break
-    if 1 < len(lines) <= MAX_LINES:
+    if 1 < len(lines) <= limit:
         lines = _balanced(text, size, w - 2 * pad_x, len(lines))
-    if len(lines) > MAX_LINES:
-        lines = lines[:MAX_LINES]
+    if len(lines) > limit:
+        lines = lines[:limit]
         lines[-1] = textwrap.shorten(lines[-1] + " …", width=max(4, len(lines[-1])), placeholder=" …")
     f = font(size)
     alert = is_alert(text)
@@ -136,15 +192,16 @@ def caption_layer(text: str, w: int, h: int, position: str = "bottom") -> tuple[
     pad_y = max(8, round(12 * k))
     rule = max(2, round(3 * k))
     panel_h = line_h * len(lines) + 2 * pad_y + rule
-    y0 = 0 if position == "top" else h - panel_h
+    y0 = safe_top if position == "top" else safe_bottom - panel_h
     ink = ALERT_INK if alert else INK
     accent = ALERT if alert else GLOW
 
     # panel: solid where the words are, feathered into the picture on its inner edge
     feather = max(6, round(14 * k))
     panel = np.zeros((h, w, 4), np.uint8)
-    panel[y0:y0 + panel_h, :, :3] = ink
-    panel[y0:y0 + panel_h, :, 3] = 226 if alert else 214
+    p0, p1 = (0, y0 + panel_h) if position == "top" else (y0, h)  # the ink runs to the frame edge
+    panel[p0:p1, :, :3] = ink
+    panel[p0:p1, :, 3] = 226 if alert else 214
     if position == "bottom":
         ys = np.arange(max(0, y0 - feather), y0)
         panel[ys, :, :3] = ink
@@ -172,7 +229,8 @@ def caption_layer(text: str, w: int, h: int, position: str = "bottom") -> tuple[
         y += line_h
     shadow = shadow.filter(ImageFilter.GaussianBlur(max(1, k)))
     layer = Image.alpha_composite(Image.alpha_composite(layer, shadow), words)
-    info = {"lines": lines, "size": size, "cap": cap_height(size), "box": (0, y0, w, y0 + panel_h), "alert": alert}
+    info = {"lines": lines, "size": size, "cap": cap_height(size), "box": (0, y0, w, y0 + panel_h), "alert": alert,
+            "safe": (safe_top, safe_bottom)}
     return np.asarray(layer).copy(), info
 
 
@@ -200,7 +258,7 @@ def draw_caption(img: np.ndarray, text: str, position: str, t: float) -> None:
         composite(img, layer)
         return
     e = 1 - (1 - max(0.0, p)) ** 3  # ease-out
-    shift = round((1 - e) * max(6, 12 * h / 360)) * (1 if position == "bottom" else -1)
+    shift = round((1 - e) * max(6, 12 * scale(w, h))) * (1 if position == "bottom" else -1)
     moved = np.zeros_like(layer)
     if shift > 0:
         moved[shift:] = layer[:-shift]
@@ -218,7 +276,8 @@ def pill_layer(text: str, w: int, h: int, position: str = "top") -> np.ndarray:
     layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     if not text:
         return np.asarray(layer).copy()
-    k = h / 360
+    k = scale(w, h)
+    safe_top, safe_bottom = safe_box(w, h)
     size = max(14, round(17 * k))
     f = pill_font(size)
     m = re.match(r"Step (\d+) of (\d+)", text)
@@ -232,7 +291,7 @@ def pill_layer(text: str, w: int, h: int, position: str = "top") -> np.ndarray:
     bw = int(tw + 2 * pad + dots_w)
     margin = max(8, round(10 * k))
     x0 = w - bw - margin
-    y0 = margin if position == "top" else h - bh - margin
+    y0 = safe_top + margin if position == "top" else safe_bottom - bh - margin
     d = ImageDraw.Draw(layer)
     d.rounded_rectangle([x0, y0, x0 + bw, y0 + bh], radius=bh // 2, fill=(*INK, 205))
     d.text((x0 + pad, y0 + pad // 2), text, font=f, fill=(*TEXT, 255))
@@ -245,19 +304,30 @@ def pill_layer(text: str, w: int, h: int, position: str = "top") -> np.ndarray:
 
 
 def composite(base: np.ndarray, layer: np.ndarray) -> None:
-    """Alpha-blend an RGBA layer onto an RGBA base in place."""
-    a = layer[..., 3:4].astype(np.uint16)
-    if not a.any():
+    """Alpha-blend an RGBA layer onto an RGBA base in place.
+
+    Only the rows and columns the layer covers are blended: a caption or a pill is a fraction
+    of the frame, and blending the whole frame on every tick was most of the render time.
+    """
+    alpha = layer[..., 3]
+    rows = np.flatnonzero(alpha.any(axis=1))
+    if rows.size == 0:
         return
-    base[..., :3] = ((base[..., :3].astype(np.uint16) * (255 - a) + layer[..., :3].astype(np.uint16) * a) // 255).astype(np.uint8)
+    y0, y1 = int(rows[0]), int(rows[-1]) + 1
+    cols = np.flatnonzero(alpha[y0:y1].any(axis=0))
+    x0, x1 = int(cols[0]), int(cols[-1]) + 1
+    a = alpha[y0:y1, x0:x1, None].astype(np.uint16)
+    dst = base[y0:y1, x0:x1, :3]
+    dst[:] = ((dst.astype(np.uint16) * (255 - a) + layer[y0:y1, x0:x1, :3].astype(np.uint16) * a) // 255).astype(np.uint8)
     base[..., 3] = 255
 
 
 def countdown_bar(img: np.ndarray, fraction_left: float, position: str = "top") -> None:
     """A full-width bar that empties as time runs out, with a bright leading edge."""
     h, w = img.shape[:2]
-    bh = max(6, h // 45)
-    y0 = 0 if position == "top" else h - bh
+    bh = max(6, round(8 * scale(w, h)))
+    safe_top, safe_bottom = safe_box(w, h)
+    y0 = safe_top if position == "top" else safe_bottom - bh
     frac = float(np.clip(fraction_left, 0.0, 1.0))
     x1 = int(w * frac)
     cv2.rectangle(img, (0, y0), (w, y0 + bh - 1), (*TRACK, 255), -1)

@@ -492,7 +492,34 @@ def run_chert_doctor(root: Path = ROOT, timeout: float = 90.0) -> str:
     return r.stdout
 
 
-def line_readiness(body: Any, line_id: str | None = None) -> list[Check]:
+def video_framing(label: str, framing: Any, out_size: tuple[int, int] | None) -> Check | None:
+    """A line set to "fill" crops Onset's picture to the caller's upright window (docs/video-framing.md)."""
+    if not isinstance(framing, str) or not framing:
+        return None
+    size = f"{out_size[0]}x{out_size[1]}" if out_size else "?"
+    if framing == "fit":
+        return Check(PASS, "video framing", f"{label}: video_framing fit, the caller sees the whole picture")
+    if framing != "fill":
+        return Check(WARN, "video framing", f"{label}: video_framing {framing!r} is new to Onset: check the captions "
+                                            "on a test call")
+    if out_size and out_size[1] > out_size[0]:
+        return Check(PASS, "video framing", f"{label}: video_framing fill, and Onset sends an upright {size} picture "
+                                            "with the captions inside the safe area")
+    return Check(FAIL, "video framing", f"{label}: video_framing fill crops a wide picture to its middle third, and "
+                                        f"Onset is set to send {size}: the captions will be cut off. Remove "
+                                        "ONSET_FRAME=landscape from .env.local (see docs/video-framing.md)")
+
+
+def _out_size(env: Mapping[str, str]) -> tuple[int, int] | None:
+    try:
+        from onset import overlay
+
+        return overlay.output_size(env)
+    except Exception:  # noqa: BLE001 - the doctor still runs without the agent's packages
+        return None
+
+
+def line_readiness(body: Any, line_id: str | None = None, out_size: tuple[int, int] | None = None) -> list[Check]:
     """Checks from GET /api/v1/lines: audio_ready false means silent calls both ways (docs/chert-audio.md)."""
     data = body.get("data", body) if isinstance(body, dict) else body
     items = data.get("items") if isinstance(data, dict) else data
@@ -519,6 +546,9 @@ def line_readiness(body: Any, line_id: str | None = None) -> list[Check]:
             out.append(Check(WARN, "line readiness", f"{label}: {facts}. The caller's camera may not reach Onset"))
         else:
             out.append(Check(PASS, "line readiness", f"{label}: {facts}"))
+        framing = video_framing(label, ln.get("video_framing"), out_size)
+        if framing:
+            out.append(framing)
     if len(lines) > 1 and not line_id:
         out.append(Check(WARN, "line readiness", f"{len(lines)} lines in the project: set CHERT_LINE_ID to the one Onset uses"))
     return out
@@ -562,7 +592,7 @@ def check_line_readiness(env: Mapping[str, str], http: HttpGet = urllib_get,
     if status != 200:
         return [Check(WARN, "line readiness", f"GET /api/v1/lines answered HTTP {status}")]
     line = (env.get("CHERT_LINE_ID") or "").strip() or None
-    return [Check(c.status, c.name, c.detail + via) for c in line_readiness(_json(body), line)]
+    return [Check(c.status, c.name, c.detail + via) for c in line_readiness(_json(body), line, _out_size(env))]
 
 
 # ---- clock

@@ -295,6 +295,24 @@ def test_line_readiness_parsing():
     assert "5551230099" not in masked
 
 
+def test_video_framing_fill_needs_an_upright_picture():
+    """Issue #27: a "fill" line crops a wide picture to its middle third, captions included."""
+    fill, fit = dict(line(), video_framing="fill"), dict(line(), video_framing="fit")
+    names = lambda checks: [(c.name, c.status) for c in checks]  # noqa: E731
+    assert names(doctor.line_readiness(lines_body(line()), None, (540, 960))) == [("line readiness", PASS)]
+    assert names(doctor.line_readiness(lines_body(fit), None, (1280, 720)))[1] == ("video framing", PASS)
+    assert names(doctor.line_readiness(lines_body(fill), None, (540, 960)))[1] == ("video framing", PASS)
+    wide = doctor.line_readiness(lines_body(fill), None, (1280, 720))[1]
+    assert (wide.name, wide.status) == ("video framing", FAIL) and "1280x720" in wide.detail
+    assert doctor.line_readiness(lines_body(fill), None, None)[1].status == FAIL
+    assert doctor.line_readiness(lines_body(dict(line(), video_framing="stretch")), None, (540, 960))[1].status == WARN
+    out = doctor.check_line_readiness(dict(GOOD, ONSET_FRAME="landscape", OUT_WIDTH="640", OUT_HEIGHT="360"),
+                                      fake_http(200, lines_body(fill)), session=lambda env: None)
+    assert [c.status for c in out] == [PASS, FAIL]
+    out = doctor.check_line_readiness(GOOD, fake_http(200, lines_body(fill)), session=lambda env: None)
+    assert [c.status for c in out] == [PASS, PASS]
+
+
 def test_line_readiness_pinned_and_multiple_lines():
     a, b = line("aaaaaaaa-2222-4333-8444-555555555555"), line("bbbbbbbb-2222-4333-8444-555555555555", audio=False)
     both = doctor.line_readiness(lines_body(a, b))

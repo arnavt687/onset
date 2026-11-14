@@ -138,9 +138,14 @@ def make_tts_chain() -> list:
 log = logging.getLogger("onset")
 
 AGENT_NAME = os.environ.get("AGENT_NAME", "onset")
-OUT_W = int(os.environ.get("OUT_WIDTH", "640"))
-OUT_H = int(os.environ.get("OUT_HEIGHT", "360"))
+# Upright by default (540x960): a Chert line with video_framing "fill" crops a wide picture
+# down to the middle third, captions included. See overlay.output_size and overlay.safe_box.
+OUT_W, OUT_H = overlay.output_size()
 SEND_FPS = 15
+# One encoding, not three: the only subscribers are Chert's Mac and at most one caregiver, and
+# simulcast tripled the encoder's work for layers nobody watched. ONSET_SIMULCAST=1 restores it.
+SIMULCAST = os.environ.get("ONSET_SIMULCAST", "0").strip() == "1"
+VIDEO_BITRATE = int(min(3_000_000, max(600_000, OUT_W * OUT_H * 2.4)))
 # How long after bridge_ready to wait for the caller's camera before declaring it missing.
 CALLER_VIDEO_GRACE_S = 10.0
 # Log loudly when the greeting starts later than this after bridge_ready (Chert's limit: 10 s).
@@ -261,7 +266,8 @@ class CallMedia:
         """Steady 15 fps: tick the flow, render its frame, send it."""
         period = 1 / SEND_FPS
         next_at = time.monotonic()
-        n = 0
+        n = late = n_logged = 0
+        late_logged = next_at
         while True:
             now = time.monotonic()
             try:
@@ -279,15 +285,28 @@ class CallMedia:
                 log.exception("[onset] send tick failed")
             n += 1
             next_at += period
-            await asyncio.sleep(max(0.0, next_at - time.monotonic()))
+            now = time.monotonic()
+            if next_at < now - period:  # fell behind: skip the missed ticks, never send a burst
+                late += 1
+                next_at = now
+            if now - late_logged >= 10.0:
+                if late:
+                    log.warning("[onset] video fell behind on %d of the last %d ticks (%dx%d @ %d fps)",
+                                late, n - n_logged, OUT_W, OUT_H, SEND_FPS)
+                late, late_logged, n_logged = 0, now, n
+            await asyncio.sleep(max(0.0, next_at - now))
 
     async def read_caller_video(self, track: rtc.RemoteVideoTrack) -> None:
         self.got_track.set()
-        stream = rtc.VideoStream(track)
+        # capacity=1: keep only the newest frame. Unbounded, every frame Onset was too busy to
+        # take queued up behind the last one and the picture ran further and further behind.
+        stream = rtc.VideoStream(track, capacity=1)
         window_start, window_frames, last_logged = time.monotonic(), 0, None
         try:
             async for event in stream:
-                img = to_rgba(event)
+                # Converting and rotating a camera frame is milliseconds of work: off the event
+                # loop, where it delayed the agent's audio and the outgoing video.
+                img = await asyncio.to_thread(to_rgba, event)
                 now = time.monotonic()
                 raw = f"{event.frame.width}x{event.frame.height}"
                 rot = rtc.VideoRotation.Name(event.rotation)
@@ -491,8 +510,15 @@ async def entry(ctx: JobContext) -> None:
     track = rtc.LocalVideoTrack.create_video_track("onset-video", source)
     send(source, placeholder(0))
     await ctx.room.local_participant.publish_track(
-        track, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_CAMERA)
+        track,
+        rtc.TrackPublishOptions(
+            source=rtc.TrackSource.SOURCE_CAMERA,
+            simulcast=SIMULCAST,
+            video_encoding=rtc.VideoEncoding(max_bitrate=VIDEO_BITRATE, max_framerate=SEND_FPS),
+        ),
     )
+    log.info("[onset] sending %dx%d video @ %d fps, %d kbps, simulcast %s", OUT_W, OUT_H, SEND_FPS,
+             VIDEO_BITRATE // 1000, "on" if SIMULCAST else "off")
 
     # No TTS in the session: Onset synthesizes every line itself (onset.voice, with fallbacks)
     # and hands the session finished audio. A TTS shared with the session would let three

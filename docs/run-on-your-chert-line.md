@@ -65,7 +65,9 @@ prints names only.
 | `ONSET_LIVE_ACTIONS` | no | `0` (default): dry run, nothing is sent. `1`: real iMessages; see [Going live](#going-live) |
 | `ONSET_LIVE_ACTIONS_DENY` | no | Keep some kinds dry even when live: `imessage`, `call`, `invite` |
 | `ONSET_SPEECH_VAD` | no | `1` (default) stops recording the sentence when the caller stops talking |
-| `OUT_WIDTH`, `OUT_HEIGHT` | no | Size of the video Onset sends back (640x360) |
+| `OUT_WIDTH`, `OUT_HEIGHT` | no | Size of the video Onset sends back (540x960, upright). 720x1280 is sharper and slower |
+| `ONSET_FRAME` | no | `portrait` (default) turns the size upright so a line set to `fill` cannot crop the captions; `landscape` keeps it wide. See [video-framing.md](video-framing.md) |
+| `ONSET_SIMULCAST` | no | `1` sends the video at three sizes again (default `0`: one, less work) |
 | `ONSET_RECORD` | no | `1` records calls to `recordings/` (a face and a voice: keep private) |
 | `ONSET_MODELS` | no | MediaPipe models somewhere other than `models/` |
 
@@ -132,6 +134,7 @@ Each row is PASS, WARN (works, but read it), FAIL (fix before calling) or SKIP (
 | `voice (tts)` | Synthesizes the greeting once and caches it, so Onset greets within Chert's 10 s window | The key, or the voice settings |
 | `chert session`, `chert line`, `chert worker`, `chert line_free`, `chert minutes`, `chert clock` | From `tools/chert.sh doctor`: signed in, the line and its Mac are up, no other session holds the line, minutes left | `tools/chert.sh login`; wait for another session to end |
 | `line readiness` | The line's Mac reports `audio_ready` and `video_ready` (Chert API, with your project key or the CLI sign-in) | `audio_ready false`: only Chert can fix it ([chert-audio.md](chert-audio.md)) |
+| `video framing` | The line's `video_framing` against the picture Onset sends: `fill` crops a wide picture to its middle third | Remove `ONSET_FRAME=landscape` ([video-framing.md](video-framing.md)) |
 | `clock (ntp)` | Offset from an NTP server; FAIL over 0.25 s, WARN over 0.1 s | Step 5 |
 | `livekit reachable` | The LiveKit keys work (lists rooms) | Wrong key, secret or URL, or keys from another project |
 | `elevenlabs key` | The key is valid and the Scribe model the sentence step uses exists (free endpoint, no transcription) | A new key with Text to Speech and Speech to Text |
@@ -211,6 +214,8 @@ Until `ONSET_LIVE_ACTIONS=1`, every action is a dry run: logged and shown on the
 | `chert dev` says the line is in use | Another `chert dev` session holds the line | `chert line_free` row; wait, or ask its owner to stop (`tools/stop.sh` on their machine) |
 | The caregiver gets nothing | Dry run, no caregiver phone, or they never texted `join <code>` | `safety gate` and `caregiver phone` rows; [Going live](#going-live) |
 | The caregiver's link only watches | No caregiver page | Host `web/caregiver/`, set `ONSET_CAREGIVER_PAGE` |
+| The picture is zoomed in and the captions are cut off at the sides | The line's `video_framing` is `fill` and Onset is sending a wide picture | `git pull`; remove `ONSET_FRAME=landscape`; `video framing` row ([video-framing.md](video-framing.md)) |
+| The video lags or stutters | The picture is too big for this computer (`video fell behind` in the agent log) | Remove `OUT_WIDTH`/`OUT_HEIGHT` from `.env.local` to use 540x960 |
 | The dashboard does not start | Port 8765 is taken | `pkill -f tools/dashboard.py`, or `--port N` |
 | MediaPipe fails to load on Linux | Missing EGL/GLES libraries | `sudo apt-get install -y libegl1 libgles2 libgl1` |
 
