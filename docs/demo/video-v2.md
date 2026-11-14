@@ -22,13 +22,15 @@ SHOTS
 15  1:34.1-1:39.6  phone close_escalate
 16  1:39.6-1:43.0  dashboard escalate (zoom)  [Caregiver iMessage: What changed against the baseline]
 17  1:43.0-1:46.0  dashboard escalate (zoom)
-18  1:46.0-1:52.4  phone arms_reframe
-19  1:52.4-1:59.4  dashboard unclear  [Persistent failure: Still unclear after a retry: escalate]
-20  1:59.4-2:15.0  deck slide 7  [How it works: FaceTime → Chert → LiveKit → agent]
-21  2:15.0-2:23.2  deck slide 12  [Safety by design: Sensitivity over specificity]
-22  2:23.2-2:33.6  deck slide 12  [Longitudinal record: A 90-day trajectory for the care team]
-23  2:33.6-2:46.4  deck slide 13  [Limits and what’s next: Clinician-led validation study]
-24  2:46.4-2:52.9  card end
+18  1:46.0-1:49.8  phone framing_arms_both_hands
+19  1:49.8-1:52.4  phone arms_restart
+20  1:52.4-1:59.4  dashboard unclear  [Persistent failure: Still unclear after a retry: escalate]
+21  1:59.4-2:15.0  deck slide 7  [How it works: FaceTime → Chert → LiveKit → agent]
+22  2:15.0-2:23.2  deck slide 12  [Safety by design: Sensitivity over specificity]
+23  2:23.2-2:28.6  dashboard trend (zoom)  [Longitudinal record: Every check-in, trended for the care team]
+24  2:28.6-2:33.6  dashboard trend (zoom)
+25  2:33.6-2:46.4  deck slide 13  [Limits and what’s next: Clinician-led validation study]
+26  2:46.4-2:52.9  card end
 
 VOICE-OVER
 0:00.8-0:18.4  n01_hook
