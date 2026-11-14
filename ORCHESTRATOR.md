@@ -37,7 +37,10 @@ onset-chert-api (PRs #10–#15, all merged into `main` on 14 Nov 2026).
      Chert Side-Challenge selected and opted in (user approved). DEADLINE: noon US Eastern, Sat 14 Nov 2026.
      Repo made PUBLIC (user asked; privacy scan of tree + history was clean). Devpost agent: ticking all AI tools used
      and selecting every prize Onset is eligible for (user asked).
-     Video v1 (tonight): subagent producing a narrated, subtitled MP4 from the real dashboard on synthetic runs (labelled
+     Video v1 DONE: `C:\Users\arnav\Videos\onset-demo-v1.mp4` (2:45, 1080p, narrated, subtitles, synthetic shots
+     labelled). Rebuild scripts merged in `tools/video/` (`make.ps1 -Steps build`; swap shots in `timeline.cjs`, edit
+     `narration.json`). Next: YouTube upload (user's account) → paste link in Devpost → user submits.
+     (Original plan: subagent producing a narrated, subtitled MP4 from the real dashboard on synthetic runs (labelled
      synthetic), caption renders and the deck → `C:\Users\arnav\Videos\onset-demo-v1.mp4`. The user uploads it to YouTube
      (their account) and pastes the link; v2 with real call footage only if the morning calls happen early enough.
      Still needed: video link (required; after tomorrow's recordings), AI tools list (add Anthropic Claude? user), repo is private but required (make
