@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Onset · live presentation</title>
+<meta name="description" content="Onset: a one-minute FaceTime check-in for the 90 days after a stroke. A short presentation built around a live demo.">
+<link rel="icon" href="../brand/logo-glyph.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-scene="cover" data-step="0">
+<div id="app">
+<div id="stage">
+  <canvas id="gl" aria-hidden="true"></canvas>
+  <div id="grain"></div>
+  <div id="vignette"></div>
+  <div id="glow" aria-hidden="true"></div>
+
+  <main id="scenes">
+
+    <!-- 1 ─ cover -->
+    <section class="scene on" id="s-cover" data-label="Onset"
+      data-notes="Hook, 20 seconds. Nearly one in four US strokes is a repeat. Onset is a one-minute FaceTime check-in for the 90 days after discharge. Move the mouse: the face follows.">
+      <p class="eyebrow r" style="--i:0">Emory Hacks 2026 · Healthcare</p>
+      <h1 class="r" style="--i:1"><img src="../brand/logo-glyph.svg" alt="">Onset</h1>
+      <p class="lede r" style="--i:2">A one-minute <b>FaceTime</b> check-in for the <b>90 days</b> after a stroke.</p>
+      <p class="byline r" style="--i:3">Arnav T · Satvik Ranga</p>
+      <p class="hint r" style="--i:5"><span class="dot"></span>Move the mouse. It follows you.</p>
+    </section>
+
+    <!-- 2 ─ problem -->
+    <section class="scene" id="s-problem" data-label="The problem"
+      data-notes="The weeks after discharge are the risky ones, and at home nobody is checking. Press once more: Onset checks in every day for 90 days.">
+      <p class="eyebrow r" style="--i:0">The problem</p>
+      <h2 class="r" style="--i:1">Going home is<br>the risky part.</h2>
+      <div class="stats r" style="--i:2" data-only="0">
+        <div class="stat" data-tilt><b>1 in 4</b><span>US strokes is a repeat stroke.</span></div>
+        <div class="stat" data-tilt><b>10–15%</b><span>have a major stroke within 3 months of a TIA.</span></div>
+      </div>
+      <p class="lede small r" style="--i:3" data-only="0">The risk is highest in the first weeks. At home, <b>nobody is checking</b>.</p>
+      <p class="source r" style="--i:4" data-only="0">Source: CDC, Stroke Facts; CDC, About Transient Ischemic Attack</p>
+
+      <div class="daycount" data-from="1">
+        <p class="eyebrow">So Onset checks in. Every day.</p>
+        <p class="big"><span>Day</span> <b id="day-n">0</b> <span>of 90</span></p>
+        <p class="lede small">One minute. No app to install. Prescribed at discharge, answered on <b>FaceTime</b>.</p>
+      </div>
+    </section>
+
+    <!-- 3 ─ the idea: three measurements against your own baseline -->
+    <section class="scene" id="s-measure" data-label="The idea"
+      data-notes="FAST is the public stroke checklist: face, arms, speech, time. Onset measures all three on a video call and compares each person with their own good day. Drag the slider (or press A) to act a change and watch it cross the line. Keys 1 2 3 switch the check.">
+      <p class="eyebrow r" style="--i:0">The idea</p>
+      <h2 class="r" style="--i:1">It compares you<br>with <em>you</em>.</h2>
+      <div class="tabs r" style="--i:2" role="tablist">
+        <button class="tab" data-go-step="0"><kbd>1</kbd>Smile</button>
+        <button class="tab" data-go-step="1"><kbd>2</kbd>Arms</button>
+        <button class="tab" data-go-step="2"><kbd>3</kbd>Speech</button>
+      </div>
+      <div class="check r" style="--i:3">
+        <p class="check-how" id="check-how"></p>
+        <div class="meter" id="meter">
+          <div class="meter-top"><span id="meter-name"></span><b id="meter-val"></b></div>
+          <div class="bar"><i id="meter-fill"></i><span class="tick base" id="tick-base"><u>your usual</u></span><span class="tick limit" id="tick-limit"><u>limit</u></span></div>
+          <p class="verdict" id="verdict"></p>
+        </div>
+        <label class="act">
+          <span>Drag to act a change <kbd>A</kbd></span>
+          <input type="range" id="act" min="0" max="100" value="0" aria-label="Act a change">
+        </label>
+      </div>
+    </section>
+
+    <!-- 4 ─ the live demo -->
+    <section class="scene" id="s-demo" data-label="Live demo"
+      data-notes="The demo is the talk. Call 1: a usual morning. Call 2: an acted change (one-sided smile, one arm sinking, a pause mid-sentence). The live view opens by itself when a call starts. L live call, B browser demo, PageDown or Continue to move on.">
+      <div class="call" data-only="0">
+        <p class="eyebrow r" style="--i:0"><span class="live-dot"></span>Live demo</p>
+        <h2 class="mega r" style="--i:1">Let's call it.</h2>
+        <p class="lede r" style="--i:2">A real FaceTime call to the Onset line. Watch the captions, the numbers, and what happens when something changes.</p>
+        <div class="calls r" style="--i:3">
+          <div class="callcard" data-tilt><span>Call 1</span><b>A usual morning</b><p>Matches this person's own baseline.</p></div>
+          <div class="callcard alert" data-tilt><span>Call 2</span><b>An acted change</b><p>A one-sided smile, one arm sinking, a pause mid-sentence.</p></div>
+        </div>
+        <div class="callrow r" style="--i:4">
+          <button class="number" id="line-number" hidden title="Click to hide or show the number"></button>
+          <button class="cta" id="open-live">Open the live view <span>→</span></button>
+          <span class="status" id="call-status">Waiting for a call…</span>
+        </div>
+      </div>
+      <div class="liveview" data-from="1">
+        <div class="livebar">
+          <div class="seg">
+            <button data-view="live" class="sel"><span class="live-dot"></span>Live call <kbd>L</kbd></button>
+            <button data-view="try">Browser demo <kbd>B</kbd></button>
+          </div>
+          <span class="status" id="live-status">Waiting for a call…</span>
+          <button class="cta ghost" id="leave-live">Continue <span>→</span></button>
+        </div>
+        <div class="frame" id="frame">
+          <p class="frame-note" id="frame-note" hidden></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 ─ what happens on a change -->
+    <section class="scene" id="s-escalate" data-label="When it changes"
+      data-notes="What you just saw. On a change, or when it can't tell, Onset does not wait: the caregiver gets a summary and a private link, joins the same call, and Onset says to call 911. It leans toward a false alarm on purpose. R replays the sequence.">
+      <p class="eyebrow r" style="--i:0">When something changes</p>
+      <h2 class="r" style="--i:1">It brings help<br>into the call.</h2>
+      <ol class="flow r" style="--i:2" id="flow">
+        <li data-e="0"><b>A change is noticed</b><span>Different from your usual, or too unclear to tell.</span></li>
+        <li data-e="1"><b>Your caregiver gets a text</b><span>A short summary and a private link.</span></li>
+        <li data-e="2"><b>They join the same call</b><span>They see you and talk to you, live.</span></li>
+        <li data-e="3" class="alert"><b>“Please call 911 now.”</b><span>Out loud and on screen. Onset leans toward a false alarm.</span></li>
+      </ol>
+    </section>
+
+    <!-- 6 ─ how it works, and the trend -->
+    <section class="scene" id="s-how" data-label="Under the hood"
+      data-notes="One line each: FaceTime in through Chert, LiveKit carries the media, the agent measures with MediaPipe and transcribes with Scribe, fixed rules compare with the baseline. Every check-in is kept, so a slow slide over weeks is flagged even when no single day crosses the line.">
+      <p class="eyebrow r" style="--i:0">Under the hood</p>
+      <h2 class="r" style="--i:1">Every check-in is kept.<br>The trend matters too.</h2>
+      <div class="pipe r" style="--i:2">
+        <div class="node" data-tilt><b>FaceTime</b><span>no app</span></div>
+        <div class="node" data-tilt><b>Chert</b><span>the line</span></div>
+        <div class="node" data-tilt><b>LiveKit</b><span>real-time media</span></div>
+        <div class="node wide" data-tilt><b>Onset agent</b><span>MediaPipe face + pose · Scribe speech</span></div>
+        <div class="node" data-tilt><b>Fixed rules</b><span>you vs your baseline</span></div>
+        <div class="node" data-tilt><b>Caregiver</b><span>text + join link</span></div>
+      </div>
+      <ul class="legend r" style="--i:3">
+        <li class="c1">Smile symmetry</li><li class="c2">Arm drift</li><li class="c3">Speech pace</li>
+        <li class="flag">Flagged: a slow decline over three weeks</li>
+      </ul>
+      <p class="source r" style="--i:4">Built with LiveKit · Chert · ElevenLabs · Gemini · MediaPipe</p>
+    </section>
+
+    <!-- 7 ─ close -->
+    <section class="scene" id="s-close" data-label="Try it"
+      data-notes="Point at the QR code: the browser demo runs on any phone or laptop, nothing is sent anywhere. Thank the sponsors. Questions.">
+      <p class="eyebrow r" style="--i:0">Your turn</p>
+      <h2 class="r" style="--i:1">Try it on<br>your phone.</h2>
+      <div class="tryrow r" style="--i:2">
+        <a class="qr" href="https://arnavt687.github.io/onset/try/" target="_blank" rel="noopener" data-tilt><img src="qr-try.svg" alt="QR code for the Onset browser demo"></a>
+        <div class="links">
+          <p><span>Browser demo</span><a href="https://arnavt687.github.io/onset/try/" target="_blank" rel="noopener">arnavt687.github.io/onset/try</a></p>
+          <p><span>Code</span><a href="https://github.com/arnavt687/onset" target="_blank" rel="noopener">github.com/arnavt687/onset</a></p>
+          <p><span>Team</span><b>Arnav T · Satvik Ranga</b></p>
+        </div>
+      </div>
+      <p class="thanks r" style="--i:3">Thank you. Questions?</p>
+    </section>
+  </main>
+
+  <div id="flight" aria-hidden="true"><span id="flight-n"></span><b id="flight-t"></b></div>
+
+  <header id="brand"><img src="../brand/logo-glyph.svg" alt=""><b>Onset</b><span id="brand-sec"></span></header>
+
+  <nav id="rail" aria-label="Sections"></nav>
+  <button class="arrow prev" id="prev" aria-label="Back">‹</button>
+  <button class="arrow next" id="next" aria-label="Next">›</button>
+
+  <aside id="notes" hidden><div><b>Notes</b><p id="notes-text"></p></div><div class="clock"><b id="clock">0:00</b><span>N notes · T reset · ? keys</span></div></aside>
+  <div id="help" hidden>
+    <h3>Keys</h3>
+    <p><kbd>→</kbd> <kbd>Space</kbd> <kbd>PgDn</kbd> next · <kbd>←</kbd> <kbd>PgUp</kbd> back · <kbd>Home</kbd> <kbd>End</kbd></p>
+    <p><kbd>D</kbd> jump to the live demo · <kbd>F</kbd> full screen · <kbd>N</kbd> notes · <kbd>M</kbd> motion on/off</p>
+    <p>The idea: <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> pick a check, <kbd>A</kbd> act a change</p>
+    <p>Live demo: <kbd>L</kbd> live call, <kbd>B</kbd> browser demo · When it changes: <kbd>R</kbd> replay</p>
+  </div>
+</div>
+</div>
+<script type="module" src="deck.js"></script>
+</body>
+</html>

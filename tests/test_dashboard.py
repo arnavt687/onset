@@ -264,6 +264,45 @@ def test_page_config_and_baseline(tmp_path):
     run(go())
 
 
+def test_presentation_is_served_with_what_it_borrows(tmp_path, monkeypatch):
+    """/present: the presentation, the pitch deck's three.js and fonts, the browser demo; nothing outside web/."""
+    monkeypatch.setenv("ONSET_LINE_NUMBER", " +1 555 010 0199 ")
+
+    async def go():
+        client = await _client(tmp_path)
+        try:
+            r = await client.get("/present", allow_redirects=False)
+            assert r.status == 302 and r.headers["Location"] == "/web/present/index.html"
+            page = await client.get("/present")
+            text = await page.text()
+            assert page.status == 200 and "Let's call it." in text and 'src="deck.js"' in text
+            for path in ("/web/present/deck.js", "/web/present/world.js", "/web/present/style.css", "/web/present/qr-try.svg",
+                         "/web/pitch/vendor/three/three.module.js", "/web/pitch/vendor/fonts/Inter.woff2",
+                         "/web/try/index.html", "/web/brand/logo-glyph.svg"):
+                assert (await client.get(path)).status == 200, path
+            assert (await client.get("/web/")).status == 403  # no directory listing
+            for path in ("/web/../tools/doctor.py", "/web/%2e%2e/.env.local", "/web/present/../../.env.local"):
+                assert (await client.get(path)).status in (403, 404), path
+            cfg = await (await client.get("/config")).json()
+            assert cfg["line_number"] == "+1 555 010 0199"
+        finally:
+            await client.close()
+
+    run(go())
+
+
+def test_presentation_scenes_and_live_demo_hooks():
+    """The deck is built around the demo: seven scenes, the live call in the middle, opened by run_started."""
+    root = Path(dashboard.WEB_DIR) / "present"
+    html, deck, world = ((root / n).read_text(encoding="utf-8") for n in ("index.html", "deck.js", "world.js"))
+    ids = ["cover", "problem", "measure", "demo", "escalate", "how", "close"]
+    assert [html.index(f'id="s-{i}"') for i in ids] == sorted(html.index(f'id="s-{i}"') for i in ids)
+    assert ids.index("demo") == len(ids) // 2
+    assert all(f"{i}:" in world for i in ids) and "run_started" in deck and "EventSource('/events')" in deck
+    for gone in ("never diagnoses", "No LLM", "synthetic", "dry run"):  # wording the team dropped
+        assert gone.lower() not in html.lower(), gone
+
+
 FAKE_LINK = "https://example.github.io/onset/caregiver/#u=wss%3A%2F%2Fx.livekit.cloud&w=aaa.bbb.ccc&t=ddd.eee.fff&n=Ana&e=1800000000"
 
 

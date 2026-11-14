@@ -78,6 +78,10 @@ tools/chert.sh dev                  # terminal 2: connects it to the line (adds 
 tools/stop.sh                       # stops both (Ctrl+C releases the line)
 ```
 
+The presentation, a short deck with the live call as its middle scene, is at
+http://localhost:8765/present (`tools/demo.sh --present` on demo day, `tools/present.sh` to
+rehearse; [web/present/README.md](web/present/README.md)).
+
 The dashboard is at http://localhost:8765 (`tools/dashboard.py`); the pitch deck, with a
 browser demo of the three measurements, is `tools/pitch.sh` → http://localhost:8770
 ([web/pitch/README.md](web/pitch/README.md)).

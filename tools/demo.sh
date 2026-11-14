@@ -9,6 +9,7 @@
 # Options: --port N (dashboard, default 8765)  --open (open the dashboard in the browser)
 #          --skip-clock (start even if a clock check fails)  --force (start even if any check fails)
 #          --dev (run the agent as `agent.py dev`: debug logs; the worker is sized the same either way)
+#          --present (open the presentation, http://localhost:8765/present: the live call is its middle scene)
 #
 # Never prints key values: tools/doctor.py reports names only, masks phone numbers and never shows
 # the signed-in Chert account. Python: $PY, else this checkout's .venv (tools/setup.sh), else ~/onset/.venv.
@@ -32,7 +33,8 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 REPLAY_ARGS=()
 FORCE=0
 AGENT_MODE=start
-usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; }
+PRESENT=0
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
 say() { printf '\033[1m[demo]\033[0m %s\n' "$*"; }
 die() { printf '\033[31m[demo] %s\033[0m\n' "$*" >&2; exit 1; }
 
@@ -46,6 +48,7 @@ while [ $# -gt 0 ]; do
     --skip-clock) SKIP_CLOCK=1 ;;
     --force) FORCE=1 ;;
     --dev) AGENT_MODE=dev ;;
+    --present) PRESENT=1; OPEN=1 ;;
     --) shift; REPLAY_ARGS=("$@"); break ;;
     *) usage >&2; die "unknown option: $1" ;;
   esac
@@ -114,7 +117,7 @@ start_dashboard() {
   if curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
     die "something already answers on port $PORT (a dashboard from an earlier run? tools/stop.sh does not stop it: pkill -f tools/dashboard.py)"
   fi
-  spawn "$PY" tools/dashboard.py --port "$PORT" >"$LOGS/dashboard-$STAMP.log" 2>&1 </dev/null &
+  ONSET_LINE_NUMBER="${LINE_NUMBER:-${ONSET_LINE_NUMBER:-}}" spawn "$PY" tools/dashboard.py --port "$PORT" >"$LOGS/dashboard-$STAMP.log" 2>&1 </dev/null &
   PIDS_DASH=$!
   local i
   for i in $(seq 1 20); do
@@ -157,12 +160,14 @@ stop_all() {
 
 open_browser() {
   [ "$OPEN" = 1 ] || return 0
+  local url="http://localhost:$PORT"
+  [ "$PRESENT" = 1 ] && url="$url/present"
   if command -v cmd.exe >/dev/null 2>&1; then
-    (cd /mnt/c 2>/dev/null && cmd.exe /c start "" "http://localhost:$PORT" >/dev/null 2>&1) || true
+    (cd /mnt/c 2>/dev/null && cmd.exe /c start "" "$url" >/dev/null 2>&1) || true
   elif [ "$(uname -s)" = Darwin ]; then
-    open "http://localhost:$PORT" >/dev/null 2>&1 || true
+    open "$url" >/dev/null 2>&1 || true
   elif command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "http://localhost:$PORT" >/dev/null 2>&1 || true
+    xdg-open "$url" >/dev/null 2>&1 || true
   fi
 }
 
@@ -171,6 +176,7 @@ banner() {
   printf '\033[1;44m  ONSET DEMO READY  \033[0m\n'
   [ -n "${LINE_NUMBER:-}" ] && printf '  FaceTime the line:  \033[1m%s\033[0m\n' "$LINE_NUMBER"
   printf '  Dashboard:          \033[1mhttp://localhost:%s\033[0m  (click once to enable sound)\n' "$PORT"
+  printf '  Presentation:       \033[1mhttp://localhost:%s/present\033[0m  (F full screen, ? keys)\n' "$PORT"
   printf '  Stop everything:    Ctrl+C here\n\n'
 }
 

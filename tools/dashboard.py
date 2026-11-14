@@ -106,7 +106,15 @@ async def config(request: web.Request) -> web.Response:
         thresholds = dataclasses.asdict(DEFAULT_THRESHOLDS)
     except Exception:  # noqa: BLE001 - the page has the same defaults built in
         pass
-    return web.json_response({"thresholds": thresholds}, headers=NO_CACHE)
+    # ONSET_LINE_NUMBER: the line to FaceTime, shown on the presentation's "Let's call it" scene
+    # (tools/demo.sh sets it from the doctor's reading of the Chert line).
+    line = (os.environ.get("ONSET_LINE_NUMBER") or "").strip()
+    return web.json_response({"thresholds": thresholds, "line_number": line or None}, headers=NO_CACHE)
+
+
+async def present(request: web.Request) -> web.StreamResponse:
+    """The presentation (web/present), with the live dashboard embedded in its middle scene."""
+    raise web.HTTPFound("/web/present/index.html")
 
 
 async def baseline(request: web.Request) -> web.Response:
@@ -304,6 +312,11 @@ def make_app(runs: Path = DEFAULT_RUNS, baselines: Path = DEFAULT_BASELINES) -> 
     app.router.add_get("/baseline/{patient_id}", baseline)
     app.router.add_get("/api/history", history)
     app.router.add_get("/caregiver-link", caregiver_link)
+    # The presentation and what it borrows (the pitch deck's three.js and fonts, the browser demo,
+    # the logo). Static files from web/ only; no directory listings, no symlinks out of web/.
+    app.router.add_get("/present", present)
+    app.router.add_get("/present/", present)
+    app.router.add_static("/web/", WEB_DIR, show_index=False, follow_symlinks=False)
     return app
 
 
