@@ -30,7 +30,19 @@ onset-chert-api (PRs #10–#15, all merged into `main` on 14 Nov 2026).
      with real recordings. Say this in the limits slide / Devpost.
    - CI fixed on main (MediaPipe needs libegl1/libgles2 on the runner)
    - Event stream contract: `onset/events.py` (runs/live/events.jsonl, frame.jpg, audio/)
-7. [ ] Real calls with the user: baseline call + acted "change" call, recorded (needs the line back from chert-voice)
+7. [ ] Real calls with the user: baseline call + acted "change" call, recorded. Line is free. The user will do these TOMORROW (15 Nov); don't nudge before then. Before the calls: resync the Ubuntu clock (it drifts ~1 s fast; Chert declines over 0.25 s), start with `ONSET_RECORD=1 tools/demo.sh`.
+   - Devpost: Emory Hacks 2026, track Healthcare, deadline about 15 Nov 2026 (~1 day). DRAFT saved (2/5 steps):
+     https://devpost.com/submit-to/32117-emory-hacks-2026/manage/submissions/1301985-onset/project-overview
+     Now 3/5 steps (schools = University of North Georgia; story says 406 tests).
+     Chert Side-Challenge selected and opted in (user approved). DEADLINE: noon US Eastern, Sat 14 Nov 2026.
+     Repo made PUBLIC (user asked; privacy scan of tree + history was clean). Devpost agent: ticking all AI tools used
+     and selecting every prize Onset is eligible for (user asked).
+     Video v1 (tonight): subagent producing a narrated, subtitled MP4 from the real dashboard on synthetic runs (labelled
+     synthetic), caption renders and the deck → `C:\Users\arnav\Videos\onset-demo-v1.mp4`. The user uploads it to YouTube
+     (their account) and pastes the link; v2 with real call footage only if the morning calls happen early enough.
+     Still needed: video link (required; after tomorrow's recordings), AI tools list (add Anthropic Claude? user), repo is private but required (make
+     public or share with judges: user's call), fix "278 tests" → current count, then the user ticks the rules box and
+     clicks "Submit project" themselves or approves us doing it.
 8. [ ] Threshold sanity check on the real recordings
 9. [ ] Caregiver iMessage: real send once the user creates a Chert project API key and the caregiver phone has texted the line
 10. [~] Demo deliverables: run-of-show, deck text, Devpost, video plan, architecture, safety in `docs/demo/` (merged).
