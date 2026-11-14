@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Onset video cards</title>
+<!-- Graphics for the demo video, screenshotted by shoot.cjs at 1920x1080.
+     cards.html?kind=disclose | phone | tag | gh (title, end and lower-thirds come from web/video/index.html)   (see the params below) -->
+<style>
+  @font-face{font-family:'Bricolage Grotesque';font-weight:400 800;src:url(../../web/pitch/vendor/fonts/BricolageGrotesque.woff2) format('woff2')}
+  @font-face{font-family:'Inter';font-weight:400 700;src:url(../../web/pitch/vendor/fonts/Inter.woff2) format('woff2')}
+  @font-face{font-family:'JetBrains Mono';font-weight:400 600;src:url(../../web/pitch/vendor/fonts/JetBrainsMono.woff2) format('woff2')}
+  :root { --bg: #060b14; --ink: #eef3f8; --muted: #94a3b8; --teal: #5eead4; --amber: #f6a623; --red: #f05252; --line: #1e293b; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; font-family: "Inter", "Segoe UI", system-ui, sans-serif; color: var(--ink); }
+  body.solid { background: radial-gradient(1400px 900px at 70% 40%, #0d1a2b 0%, var(--bg) 70%); }
+  body.clear { background: transparent; }
+  .mono { font-family: "JetBrains Mono", "Consolas", ui-monospace, monospace; letter-spacing: .18em; text-transform: uppercase; }
+  .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+  h1 { font-size: 220px; font-weight: 800; letter-spacing: -.04em; line-height: 1; }
+  .dot { display: inline-block; width: 34px; height: 34px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 40px var(--teal); margin-right: 36px; vertical-align: 50px; }
+  .sub { font-size: 56px; font-weight: 500; margin-top: 34px; color: #dbe5ef; }
+  .sub b { color: var(--teal); font-weight: 600; }
+  .fine { font-size: 26px; color: var(--muted); margin-top: 64px; }
+  .tagline { position: absolute; left: 0; right: 0; bottom: 70px; text-align: center; font-size: 24px; color: var(--muted); }
+  .link { font-size: 50px; font-weight: 600; color: var(--teal); margin-top: 40px; }
+  .warn { display: inline-block; margin-top: 54px; padding: 18px 34px; border: 2px solid var(--amber); border-radius: 14px; color: var(--amber); font-size: 36px; font-weight: 600; }
+  /* phone */
+  .phone { position: absolute; background: #0b0f16; border: 3px solid #2a3444; border-radius: 64px; padding: 34px 70px; box-shadow: 0 40px 120px rgba(0,0,0,.6), inset 0 0 0 8px #121a26; }
+  .phone img { display: block; border-radius: 18px; image-rendering: auto; }
+  .phone::before { content: ""; position: absolute; left: 26px; top: 50%; width: 14px; height: 120px; margin-top: -60px; border-radius: 8px; background: #1b2433; }
+  .side { position: absolute; left: 1330px; top: 0; bottom: 0; right: 80px; display: flex; flex-direction: column; justify-content: center; }
+  .side .k { color: var(--teal); font-size: 26px; }
+  .side h2 { font-family: "Bricolage Grotesque", "Segoe UI", sans-serif; font-size: 64px; font-weight: 700; line-height: 1.08; margin: 18px 0 22px; letter-spacing: -.02em; }
+  .side p { font-size: 30px; color: #c3cfdb; line-height: 1.4; }
+  .chip { display: inline-block; margin-top: 30px; padding: 10px 18px; border: 2px solid var(--amber); color: var(--amber); border-radius: 10px; font-size: 22px; }
+  /* lower third */
+  .lower { position: absolute; left: 70px; bottom: 190px; display: flex; align-items: stretch; filter: drop-shadow(0 10px 30px rgba(0,0,0,.55)); }
+  .lower .bar { width: 10px; background: var(--teal); border-radius: 6px 0 0 6px; }
+  .lower .box { background: rgba(6,11,20,.92); border: 2px solid #1f2c3d; border-left: none; border-radius: 0 12px 12px 0; padding: 16px 30px 18px; }
+  .lower .k { font-size: 20px; color: var(--teal); }
+  .lower .t { font-size: 42px; font-weight: 700; margin-top: 4px; }
+  .lower.alert .bar { background: var(--red); } .lower.alert .k { color: var(--red); }
+  /* synthetic tag */
+  .tag { position: absolute; right: 36px; top: 30px; background: rgba(20,12,0,.9); border: 2px solid var(--amber); color: var(--amber); border-radius: 12px; padding: 10px 20px; font-size: 26px; font-weight: 700; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+  .tag small { display: block; font-size: 17px; font-weight: 500; color: #f8cf8a; margin-top: 2px; }
+  .tag i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--amber); margin-right: 12px; vertical-align: 2px; }
+</style>
+</head>
+<body>
+<script>
+const q = new URLSearchParams(location.search);
+const kind = q.get('kind') || 'title';
+const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const B = document.body;
+if (kind === 'title') {
+  B.className = 'solid';
+  B.innerHTML = `<div class="center"><div>
+    <h1><span class="dot"></span>Onset</h1>
+    <div class="sub">a 60-second stroke check-in you <b>FaceTime</b></div>
+    <div class="fine mono">Research prototype · not a medical device</div></div></div>`;
+} else if (kind === 'end') {
+  B.className = 'solid';
+  B.innerHTML = `<div class="center"><div>
+    <h1 style="font-size:170px"><span class="dot"></span>Onset</h1>
+    <div class="sub">a 60-second stroke check-in you <b>FaceTime</b></div>
+    <div class="link">github.com/arnavt687/onset</div>
+    <div class="warn">Research prototype · not a medical device</div>
+    <div class="fine">Built with ElevenLabs, LiveKit and Chert</div></div></div>`;
+} else if (kind === 'disclose') {
+  B.className = 'solid';
+  B.innerHTML = `
+    <div class="phone" style="left:110px;top:250px"><img src="${esc(q.get('img'))}" width="1088" height="612"></div>
+    <div class="side" style="left:1390px">
+      <div class="k mono">About this video</div>
+      <h2 style="color:var(--amber)">Synthetic demo run</h2>
+      <p>Onset's real software (its captions, dashboard, decision rules and caregiver text) fed simulated check-ins.</p>
+      <p style="margin-top:22px">No real person or patient appears. Nothing was sent.</p></div>`;
+} else if (kind === 'phone') {
+  B.className = 'solid';
+  B.innerHTML = `
+    <div class="phone" style="left:110px;top:250px"><img src="${esc(q.get('img'))}" width="1088" height="612"></div>
+    <div class="side" style="left:1390px">
+      <div class="k mono">${esc(q.get('k') || 'What the caller sees')}</div>
+      <h2>${esc(q.get('t'))}</h2>
+      <p>${esc(q.get('p') || "Captions on the agent's FaceTime video, rendered by Onset's overlay code.")}</p>
+      <div><span class="chip">Synthetic · stand-in picture</span></div></div>`;
+} else if (kind === 'lower') {
+  B.className = 'clear';
+  B.innerHTML = `<div class="lower ${q.get('alert') ? 'alert' : ''}"><div class="bar"></div><div class="box">
+    <div class="k mono">${esc(q.get('k'))}</div><div class="t">${esc(q.get('t'))}</div></div></div>`;
+} else if (kind === 'gh') {
+  B.className = 'clear';
+  B.innerHTML = `<div style="position:absolute;left:0;right:0;top:905px;text-align:center"><span class="mono" style="font-size:34px;letter-spacing:.06em;text-transform:none;color:var(--teal)">github.com/arnavt687/onset</span></div>`;
+} else if (kind === 'tag') {
+  B.className = 'clear';
+  B.innerHTML = `<div class="tag" style="${q.get('pos') === 'tl' ? 'left:36px;right:auto' : ''}"><i></i>SYNTHETIC DEMO RUN<small>${esc(q.get('s') || 'simulated input · not a real person')}</small></div>`;
+}
+</script>
+</body>
+</html>

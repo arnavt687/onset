@@ -1,0 +1,22 @@
+{
+  "voice_id": "EXAVITQu4vr4xnSDxMaL",
+  "voice_name": "Sarah",
+  "model_id": "eleven_multilingual_v2",
+  "voice_settings": {"stability": 0.6, "similarity_boost": 0.75, "style": 0.0, "use_speaker_boost": true, "speed": 0.97},
+  "segments": [
+    {"id": "n01_hook", "text": "After a stroke or a mini-stroke, people go home, and their family becomes the early warning system. According to the CDC, nearly one in four strokes in the US happen to someone who has had one before."},
+    {"id": "n02_what", "text": "Onset is a one-minute check-in you FaceTime. No app to install. It runs the FAST checks, smile, arms and speech, and compares you with yourself."},
+    {"id": "n03_disclose", "text": "The runs in this video are synthetic: Onset's real software, fed simulated check-ins. No real person or patient appears."},
+    {"id": "n04_smile", "text": "First, a smile. Face landmarks measure how far each corner of the mouth lifts."},
+    {"id": "n05_arms", "text": "Then both arms up for ten seconds. Each wrist is measured against the shoulders, so a wobbly phone doesn't count as drift."},
+    {"id": "n06_speech", "text": "Then a sentence to repeat. Onset checks the words, the pace, and the longest pause. Every instruction is also a caption on the agent's video, so it works with the sound off."},
+    {"id": "n07_usual", "text": "This is the judge dashboard. The first check-in records this person's usual numbers. After that, every number sits next to that baseline. And the result is never \"you're fine\". It's: no change detected, compared with your usual check-in."},
+    {"id": "n08_change", "text": "Now a simulated change. We fed in a one-sided smile, one arm sinking, and a pause in the middle of the sentence."},
+    {"id": "n09_red", "text": "Each meter crosses its threshold and turns red. Change noticed: call 911 now."},
+    {"id": "n10_caregiver", "text": "The caregiver gets an iMessage saying what Onset noticed. Here it's a dry run, so nothing was sent. It never names a condition."},
+    {"id": "n11_unclear", "text": "And anything it can't measure clearly, like arms out of frame, gets the same answer: call 911 now."},
+    {"id": "n12_how", "text": "FaceTime reaches the agent through Chert and LiveKit. MediaPipe measures the face and arms on the laptop's CPU, and ElevenLabs Scribe transcribes the sentence. Fixed rules decide. There's no LLM in the decision path."},
+    {"id": "n13_safety", "text": "It leans toward false alarms on purpose: a false alarm costs a phone call. It never says you're fine, never diagnoses, and recordings and baselines stay on the machine."},
+    {"id": "n14_limits", "text": "Onset is a research prototype, not a medical device. The thresholds are provisional, tuned on synthetic data and one person. Next is a clinician-led validation study. Built with ElevenLabs, LiveKit and Chert."}
+  ]
+}
