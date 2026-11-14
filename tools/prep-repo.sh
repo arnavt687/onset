@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd ~/onset
+cd "$(dirname "$0")/.."
 # One-off probes from setup; not part of the project.
 rm -f tools/gemini_probe.py tools/gemini_text_probe.py tools/inspect_plugin.sh tools/add-gemini.sh \
       tools/add-elevenlabs.sh tools/gitcheck.sh tools/tts_models.sh
 rm -rf __pycache__
 # Pinned dependencies, from what is installed and tested.
-~/.venvs/uv/bin/uv pip freeze --python .venv/bin/python \
+"${UV:-uv}" pip freeze --python .venv/bin/python \
   | grep -iE '^(livekit|livekit-agents|livekit-api|livekit-protocol|livekit-plugins-(openai|google|elevenlabs)|numpy|opencv-python-headless|python-dotenv|google-genai)==' > requirements.txt
 cat requirements.txt
 [ -d .git ] || git init -q -b main

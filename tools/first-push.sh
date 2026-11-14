@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd ~/onset
+cd "$(dirname "$0")/.."
 git add -A
 git ls-files --cached | grep -qE '^\.env\.local$' && { echo ".env.local staged; aborting"; exit 1; }
 git commit -q -F - <<'MSG'

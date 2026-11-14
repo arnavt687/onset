@@ -51,18 +51,19 @@ issue on Chert's side).
 |---|---|---|
 | ![captions](docs/demo/screenshots/polish/overlay-captions-640x360.jpg) | ![dashboard](docs/demo/screenshots/polish/dashboard-escalate.jpg) | ![deck](docs/demo/screenshots/polish/deck-07-how-it-works.jpg) |
 
-## Run it (WSL Ubuntu)
+## Run it (Linux, WSL Ubuntu or macOS)
+
+**Run it on your own Chert line: [docs/run-on-your-chert-line.md](docs/run-on-your-chert-line.md)**
+(prerequisites, every `.env.local` setting, what each check means, troubleshooting).
 
 ```bash
-cd ~/onset
-~/.venvs/uv/bin/uv venv --python 3.12 .venv
-~/.venvs/uv/bin/uv pip install --python .venv/bin/python -r requirements.txt
-cp .env.example .env.local   # then fill in your keys privately
-tools/setup-shared.sh        # MediaPipe models into ~/onset/models
+tools/setup.sh               # Python 3.12 .venv + requirements, MediaPipe models, Node/Chert CLI, .env.local
+#                              then fill in .env.local privately and run: tools/chert.sh login
+tools/demo.sh --check        # tools/doctor.py: keys, voice, models, LiveKit, the line's audio_ready, clock
 ```
 
 ```bash
-tools/demo.sh                       # demo day: checks, then agent + chert dev + dashboard
+tools/demo.sh                       # checks (stops on FAIL), then agent + chert dev + dashboard
 .venv/bin/python agent.py start     # or by hand, terminal 1: the agent
 tools/chert.sh dev                  # terminal 2: connects it to the Chert line
 tools/stop.sh                       # stops both (Ctrl+C releases the line)

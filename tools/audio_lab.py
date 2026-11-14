@@ -22,7 +22,7 @@ Then silence apart from the tone; the caller hangs up.
 Speech is fetched once from ElevenLabs (pcm_24000) and cached in LAB_CACHE (about 600 characters
 in total), so warm rooms and repeat calls cost nothing more.
 
-Run:  ~/onset/.venv/bin/python tools/audio_lab.py start
+Run:  .venv/bin/python tools/audio_lab.py start
       then chert dev --agent $LAB_AGENT_NAME
 """
 
@@ -44,12 +44,12 @@ from dotenv import load_dotenv
 from livekit import rtc
 from livekit.agents import AgentServer, AutoSubscribe, JobContext, cli
 
-load_dotenv(Path.home() / "onset" / ".env.local")
-load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
+load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")  # this checkout's settings win
+load_dotenv(Path.home() / "onset" / ".env.local")  # then the shared WSL checkout's, if any
 
 log = logging.getLogger("lab")
-LAB_AGENT_NAME = os.environ.get("LAB_AGENT_NAME", "onset-lab-38e8b4b9")
-CACHE = Path(os.environ.get("LAB_CACHE", Path.home() / "onset-wt" / "lab-cache"))
+LAB_AGENT_NAME = os.environ.get("LAB_AGENT_NAME") or f"{os.environ.get('AGENT_NAME', 'onset')}-lab"
+CACHE = Path(os.environ.get("LAB_CACHE", Path(__file__).resolve().parent.parent / "runs" / "lab-cache"))
 VOICE = os.environ.get("ELEVEN_VOICE_ID", "EXAVITQu4vr4xnSDxMaL")
 W, H, FPS = 640, 360, 15
 
