@@ -77,7 +77,10 @@ class Timing:
     arms_hold_s: float = 10.0  # ArmMeter.HOLD_SECONDS
     arms_hold_margin_s: float = 0.5
     sentence_lead_s: float = 6.0  # "lower your arms" + hear/read the sentence
-    sentence_record_s: float = 7.0
+    sentence_record_s: float = 7.0  # the cap; voice activity usually ends it sooner
+    sentence_preroll_s: float = 1.5  # lead audio kept in case they start before "Say it now"
+    sentence_vad_min_speech_s: float = 0.6  # onset.vad: speech this long, then ...
+    sentence_vad_silence_s: float = 0.9  # ... this much silence ends the recording
     speech_timeout_s: float = 15.0
     cap_s: float = 90.0  # from start(); everything unfinished is NO_RESPONSE
     live_interval_s: float = 0.2  # live metric events, ~5 per second
@@ -242,6 +245,9 @@ class CheckFlow:
         self.done = False
         self._audio: list[tuple[float, bytes, int]] = []  # (t, pcm, rate) during the sentence window
         self._rec_window: tuple[float, float] | None = None
+        self._vad = None  # onset.vad.VoiceActivity for the sentence step; ONSET_SPEECH_VAD=0: timer only
+        self._vad_on = os.environ.get("ONSET_SPEECH_VAD", "1").strip() != "0"
+        self._preroll: list[tuple[float, bytes, int]] = []  # the last sentence_preroll_s of the lead
         self._face_meter = None
         self._arm_meter = None
         self.reframes = {"face": 0, "arms": 0}  # framing retries used per step
@@ -349,6 +355,29 @@ class CheckFlow:
             w = self._rec_window
             if w is not None and w[0] <= t <= w[1] + 0.5:
                 self._audio.append((t, bytes(pcm), int(sample_rate)))
+                self._hear(pcm, sample_rate, t)
+            elif self.state == "sentence" and self._measure_t is None:
+                # The lead: keep a short pre-roll and let the VAD learn the room's noise.
+                self._preroll.append((t, bytes(pcm), int(sample_rate)))
+                cut = t - self.timing.sentence_preroll_s
+                while self._preroll and self._preroll[0][0] < cut:
+                    self._preroll.pop(0)
+                self._hear(pcm, sample_rate, t)
+
+    def _hear(self, pcm: bytes, sample_rate: int, t: float) -> None:
+        """Feed the sentence step's voice-activity detector (never raises into the call)."""
+        if not self._vad_on:
+            return
+        try:
+            if self._vad is None:
+                from onset.vad import VoiceActivity
+
+                self._vad = VoiceActivity(min_speech_s=self.timing.sentence_vad_min_speech_s,
+                                          end_silence_s=self.timing.sentence_vad_silence_s)
+            self._vad.feed(pcm, sample_rate, t)
+        except Exception:  # noqa: BLE001 - fall back to the timer
+            log.exception("[onset] voice activity failed; the timer ends the sentence")
+            self._vad_on, self._vad = False, None
 
     def tick(self, t: float) -> None:
         with self._lock:
@@ -441,13 +470,39 @@ class CheckFlow:
             if self._measure_t is None and el >= tm.sentence_lead_s:
                 self._measure_t = t
                 self._rec_window = (t, t + tm.sentence_record_s)
+                vad = self._vad
+                if vad is not None and vad.active:  # they started before "Say it now": keep the pre-roll
+                    self._audio.extend(self._preroll)
+                elif vad is not None:
+                    vad.reset()  # anything said during the lead is not the attempt
+                self._preroll = []
                 go = script.sentence_go(self.sentence)
                 self.caption = go.caption
                 self.countdown = (t + tm.sentence_record_s, tm.sentence_record_s)
                 self._emit("step", name="sentence", caption=go.caption, seconds=tm.sentence_record_s)
-            elif self._measure_t is not None and t >= self._measure_t + tm.sentence_record_s:
-                self._rec_window = None
-                self._to_deciding(t)
+            elif self._measure_t is not None:
+                vad = self._vad
+                if vad is not None and vad.ended and \
+                        vad.ended_at - max(vad.started_at, self._measure_t) < tm.sentence_vad_min_speech_s:
+                    vad.reset()  # only the tail of lead-time talk fell in the window: keep listening
+                speech_end = vad is not None and vad.ended
+                if speech_end or t >= self._measure_t + tm.sentence_record_s:
+                    self._rec_window = None
+                    self._emit_vad(t, "speech_end" if speech_end else "timer")
+                    self._to_deciding(t)
+
+    def _emit_vad(self, t: float, reason: str) -> None:
+        """How the recording ended; times are seconds from "Say it now" (negative: in the pre-roll)."""
+        v, w0 = self._vad, self._measure_t or t
+
+        def rel(x):
+            return None if x is None else round(x - w0, 3)
+
+        self._emit("vad", enabled=self._vad_on, reason=reason,
+                   started_at=rel(v.started_at) if v else None, ended_at=rel(v.ended_at) if v else None,
+                   speech_s=None if v is None or v.speech_s is None else round(v.speech_s, 3),
+                   record_s=round(t - w0, 3),
+                   floor_db=None if v is None or v.floor_db is None else round(v.floor_db, 1))
 
     def _read_face(self) -> FaceResult:
         if self.face is not None:  # already an error from start()
