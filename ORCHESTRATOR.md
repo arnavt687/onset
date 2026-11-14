@@ -5,6 +5,8 @@ The orchestrator keeps this file current.
 
 **Project status:** IN PROGRESS   <!-- the resume job stops nudging only when this says COMPLETE -->
 
+**Waiting on user:** yes (YouTube upload of the demo video; Devpost submit; morning recordings)   <!-- when "yes", the resume job leaves the orchestrator alone -->
+
 ## Sessions the resume job watches
 
 | Session id | Role | Watch? |
