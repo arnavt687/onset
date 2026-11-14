@@ -14,7 +14,8 @@ Layout of this module
 * Pure functions on a list of samples: `body_track` (camera-motion-compensated wrist tracks),
   `find_hold_start`, `find_hold_end`, `analyse` (-> ArmResult).
 * `ArmMeter` wraps MediaPipe for live use: `add(frame)`, `arms_up()`, `result()`, `draw()`,
-  `reset()`.
+  `reset()`, and `framing()` (are both shoulders and wrists in the picture right now, and if
+  not, what to tell the person; see `frame_problem`).
 
 Robustness and re-prompting
 ---------------------------
@@ -422,6 +423,112 @@ def _result(q: Quality, **detail) -> ArmResult:
 
 
 # ---------------------------------------------------------------------------------------------
+# Framing: can we see what we need to measure, right now?
+#
+# The flow asks this live, so it can tell the person how to fix the picture and run the step
+# again instead of ending the call as UNCLEAR. Only problems with the *picture* count here. A
+# wrist below the bottom edge (BELOW) is never a framing problem: before the hold it is an arm
+# that is not raised yet, during the hold it may be an arm that dropped, and both of those are
+# measurements, not framing.
+
+FRAMING_LOOKBACK_S = 3.0  # how much recent history framing() looks at
+
+# Problems, in the order a person should fix them. The flow maps each one to a script line.
+FRAMING_PROBLEMS = (
+    "too_dark",  # no body found and the picture is dark
+    "no_body",  # no body found
+    "shoulders_low",  # shoulders below the bottom edge: phone too close or pointing too high
+    "shoulders_high",  # shoulders above the top edge: phone pointing too low
+    "shoulders_side",  # a shoulder off the left/right edge
+    "both_hands",  # neither wrist can be seen (off the sides, or hidden)
+    "hands_high",  # both wrists above the top edge (arms overhead, or phone too low)
+    "left_hand",  # the person's left wrist cannot be seen
+    "right_hand",
+)
+
+
+@dataclass(frozen=True)
+class Framing:
+    """What framing() saw. problem is None when both shoulders and both wrists can be used
+    (or a wrist is below the frame, which is a lowered arm, not a framing problem)."""
+
+    problem: str | None
+    seconds: float = 0.0  # how long a framing problem has lasted without a good frame
+    dropped: str | None = None  # during the hold: a side lost while it was moving down
+
+    @property
+    def ok(self) -> bool:
+        return self.problem is None
+
+
+def frame_problem(s: PoseSample) -> str | None:
+    """The framing problem on one frame, or None (see FRAMING_PROBLEMS)."""
+    if s.pts is None:
+        return "too_dark" if s.luma < DARK_LUMA else "no_body"
+    w, h = s.size
+    if not shoulders_ok(s):
+        xs, ys, vs = s.pts[[LS, RS], 0], s.pts[[LS, RS], 1], s.pts[[LS, RS], 2]
+        if (ys > h).any():
+            return "shoulders_low"
+        if (ys < 0).any():
+            return "shoulders_high"
+        if (xs < 0).any() or (xs > w).any():
+            return "shoulders_side"
+        return "no_body" if (vs < VIS_MIN).all() else "shoulders_side"
+    states = [wrist_state(*s.pts[row], s.size) for row in (LW, RW)]
+    lost = [st in (MISSING, ABOVE) for st in states]
+    if all(lost):
+        return "hands_high" if all(st == ABOVE for st in states) else "both_hands"
+    if lost[0]:
+        return "left_hand"
+    if lost[1]:
+        return "right_hand"
+    return None
+
+
+def framing_of(samples: Sequence[PoseSample], *, during_hold: bool = False) -> Framing:
+    """Framing over the most recent samples.
+
+    `seconds` is how long the problem has lasted: the time from the first frame of the
+    trailing run of problem frames to the newest frame. The reported problem is the most
+    common one in that run, so one odd frame does not change the advice.
+
+    during_hold: a wrist that was already moving down (body-frame y below UP_LEVEL, i.e. more
+    than a quarter shoulder width under the shoulder line) when it disappeared may be an arm
+    that dropped. That is never treated as a framing problem: the hold carries on and the
+    analysis measures it (`dropped` names the side).
+    """
+    if not samples:
+        return Framing(None)
+    t_last = samples[-1].t
+    recent = [s for s in samples if s.t >= t_last - FRAMING_LOOKBACK_S]
+    probs = [frame_problem(s) for s in recent]
+    dropped = None
+    if during_hold:
+        tr = body_track(recent)
+        for side, name, label in ((0, "left", "left_hand"), (1, "right", "right_hand")):
+            seen = np.nonzero(tr.state[:, side] == OK_PT)[0]
+            if not len(seen):
+                continue
+            y_last = tr.rel[seen[-1], side, 1]
+            lost_after = any(p in (label, "both_hands") for p in probs[seen[-1] + 1:])
+            if lost_after and np.isfinite(y_last) and y_last > UP_LEVEL:
+                dropped = name
+        if dropped is not None:
+            other = "right_hand" if dropped == "left" else "left_hand"
+            # Drop the dropped side from the problems; the other side may still be lost.
+            probs = [None if p == f"{dropped}_hand" else (other if p == "both_hands" else p) for p in probs]
+    if probs[-1] is None:
+        return Framing(None, 0.0, dropped)
+    i = len(probs) - 1
+    while i > 0 and probs[i - 1] is not None:
+        i -= 1
+    run = [p for p in probs[i:] if p is not None]
+    problem = max(FRAMING_PROBLEMS, key=lambda p: (run.count(p), -FRAMING_PROBLEMS.index(p)))
+    return Framing(problem, float(t_last - recent[i].t), dropped)
+
+
+# ---------------------------------------------------------------------------------------------
 # MediaPipe wrapper
 
 
@@ -555,6 +662,13 @@ class ArmMeter:
     def hold_start(self) -> float | None:
         return self._t0
 
+    def framing(self, during_hold: bool = False) -> Framing:
+        """Can both shoulders and both wrists be seen right now? Never raises."""
+        try:
+            return framing_of(self.samples, during_hold=during_hold)
+        except Exception:  # a malformed sample must not break the call
+            return Framing(None)
+
     def result(self) -> ArmResult:
         """The step's ArmResult. Never raises."""
         if self._n_errors and self._n_errors >= max(1, self._n_ok):
@@ -569,7 +683,8 @@ class ArmMeter:
 
     def live(self) -> dict:
         """Numbers for the overlay: hold elapsed and drift so far."""
-        out: dict = {"arms_up": self.arms_up(), "hold_elapsed": 0.0, "left_drift": None, "right_drift": None}
+        out: dict = {"arms_up": self.arms_up(), "hold_elapsed": 0.0, "left_drift": None, "right_drift": None,
+                     "framing": self.framing(during_hold=self._t0 is not None).problem}
         if not self.samples or self._t0 is None:
             return out
         recent = [s for s in self.samples if s.t >= self._t0 - 0.1]

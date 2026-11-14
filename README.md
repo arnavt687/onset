@@ -28,6 +28,11 @@ unclear tells them to call 911 now and texts a caregiver.
 | Change | "Change noticed. Adding your caregiver to this call. Please call 911 now." | joined to the call + iMessage: what was noticed |
 | Unclear | "I could not check clearly. Adding your caregiver. Please call 911 now." | joined to the call + iMessage: what could not be checked |
 
+If the camera cannot see the face or both arms, Onset first says how to fix the picture
+("I can't see your left hand. Move back so both hands show.") and runs that step again, up to
+twice. Only if it still cannot see them is the result Unclear. An arm that drops or is never
+raised is a finding, never a reason to retry ([details](docs/thresholds.md#framing-retries)).
+
 ## How it works
 
 ![Architecture: FaceTime, Chert, LiveKit, the Onset agent, three measurements, fixed rules, 911 and the caregiver text](docs/demo/architecture.svg)

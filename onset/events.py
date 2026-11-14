@@ -10,9 +10,14 @@ The flow (live call or replay) writes to a run directory:
 Every event has "t" (seconds since the run started), "type", and the fields below.
 
     run_started   run_id, source ("call"|"replay"), patient_id, has_baseline (bool), sentence
-    step          name ("greet"|"face_neutral"|"face_smile"|"arms_wait"|"arms_hold"|"sentence"|
-                        "deciding"|"closing"|"baseline_saved"), caption (str, what the caller sees),
-                  seconds (float|None, countdown length)
+    step          name ("greet"|"face_neutral"|"face_smile"|"face_reframe"|"arms_wait"|"arms_hold"|
+                        "sentence"|"deciding"|"closing"|"baseline_saved"), caption (str, what the
+                  caller sees), seconds (float|None, countdown length)
+    framing       check ("face"|"arms"), phase ("neutral"|"smile"|"wait"|"hold"), problem (str, e.g.
+                  "left_hand", "no_face"; see onset/script.py ARMS_FRAMING / FACE_FRAMING),
+                  action ("retry": the fix-it caption is shown and the step runs again |
+                  "give_up": no retries left, the step carries on and may end UNCLEAR),
+                  retry (int, 1-based), max_retries (int), caption (str)
     say           text, audio (path relative to the run dir, or None)
     live          step, metrics (dict of small numbers for the meters, e.g. {"lift_left": 0.12})
     result        check ("face"|"arms"|"speech"), quality, data (the FaceResult/ArmResult/SpeechResult as a dict)
