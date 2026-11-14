@@ -244,8 +244,11 @@ class CheckFlow:
             if self.state != "idle":
                 return
             self.t0 = t
+            # The baseline's numbers go with the run so the dashboard can draw "usual" markers
+            # without reading the baseline file (events.py turns the dataclass into a plain dict).
             self._emit("run_started", run_id=self.run_id, source=self.source, patient_id=self.patient_id,
-                       has_baseline=self.baseline is not None, sentence=self.sentence)
+                       has_baseline=self.baseline is not None, sentence=self.sentence,
+                       baseline=self.baseline)
             self._enter("greet", t, script.GREETING, seconds=self.timing.greet_s)
             for name, attr, factory in (("face", "_face_meter", self._face_factory),
                                         ("arms", "_arm_meter", self._arm_factory)):
