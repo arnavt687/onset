@@ -18,8 +18,8 @@ GOOD = {
     "LIVEKIT_API_KEY": "APIfakekey123",
     "LIVEKIT_API_SECRET": "fakesecretfakesecretfakesecret",
     "AGENT_NAME": "onset-tt",
-    "ELEVENLABS_API_KEY": "sk_fakeelevenlabskey0000",
-    "CHERT_API_KEY": "ftk_fakeprojectkey000000",
+    "ELEVENLABS_API_KEY": "sk_test_not_real",
+    "CHERT_API_KEY": "ftk_test_not_real",
     "CHERT_PROJECT_ID": "0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6",
 }
 
