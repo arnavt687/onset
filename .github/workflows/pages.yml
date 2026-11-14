@@ -1,7 +1,9 @@
-# Publishes the caregiver page (web/caregiver/) to GitHub Pages at
-#   https://arnavt687.github.io/onset/caregiver/
-# The repo owner must first turn Pages on: Settings > Pages > Source: GitHub Actions.
-# Only web/caregiver/ is published (as caregiver/ inside the site); nothing else in the repo is.
+# Publishes two static pages to GitHub Pages:
+#   https://arnavt687.github.io/onset/caregiver/   the caregiver page (web/caregiver/)
+#   https://arnavt687.github.io/onset/try/         the in-browser "Try Onset" demo (web/try/)
+# and makes the site root redirect to try/.
+# Pages must be on: Settings > Pages > Source: GitHub Actions.
+# Only those two folders are published; nothing else in the repo is.
 name: pages
 
 on:
@@ -9,6 +11,7 @@ on:
     branches: [main]
     paths:
       - "web/caregiver/**"
+      - "web/try/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -30,8 +33,24 @@ jobs:
 
       - name: Stage the site
         run: |
-          mkdir -p _site/caregiver
+          mkdir -p _site/caregiver _site/try
           cp -R web/caregiver/. _site/caregiver/
+          cp -R web/try/. _site/try/
+          cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+          <meta charset="utf-8">
+          <title>Onset</title>
+          <meta http-equiv="refresh" content="0; url=try/">
+          <link rel="canonical" href="try/">
+          <script>location.replace('try/' + location.search + location.hash);</script>
+          </head>
+          <body style="background:#070c14;color:#e9eef2;font-family:system-ui,sans-serif">
+          <p><a href="try/" style="color:#67e0d2">Try Onset in your browser</a></p>
+          </body>
+          </html>
+          HTML
           touch _site/.nojekyll
           find _site -type f | sort
 
@@ -45,7 +64,7 @@ jobs:
     timeout-minutes: 5
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}caregiver/
+      url: ${{ steps.deployment.outputs.page_url }}try/
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
