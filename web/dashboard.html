@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Onset Live Check-in</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='116' fill='%230A1322'/%3E%3Cpath d='M390.13 193.45A148 148 0 1 1 243.10 108.56' fill='none' stroke='%2367E0D2' stroke-width='54' stroke-linecap='round'/%3E%3Ccircle cx='330' cy='127.83' r='30.24' fill='%23FF6B57'/%3E%3C/svg%3E">
 <!-- No external fonts, scripts or CDNs: the venue network may be down. The fonts are embedded. -->
 <style>
 /* Same visual language as the pitch deck (web/pitch): deep ink, one measuring teal, one alert
@@ -57,7 +58,7 @@ body { display: flex; align-items: center; justify-content: center; }
 /* ---------------------------------------------------------------- header + timeline */
 header { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 1.2cqw; position: relative; z-index: 2; }
 .brand { display: flex; align-items: center; gap: 0.7cqw; }
-.brand::before { content: ""; width: 0.6cqw; height: 0.6cqw; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0.8cqw var(--blue); }
+.brand .logo { width: 2.3cqw; height: 2.3cqw; flex: none; }
 .brand b { font-family: var(--f-display); font-size: 2.2cqw; font-weight: 700; letter-spacing: -0.03em; }
 .brand span { white-space: nowrap; font-family: var(--f-mono); font-size: 0.78cqw; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
 .timeline { display: flex; align-items: center; justify-content: center; gap: 0; }
@@ -258,7 +259,7 @@ footer { text-align: center; font-family: var(--f-mono); font-size: 0.8cqw; colo
 <div id="stage">
   <div id="wash"></div>
   <header>
-    <div class="brand"><b>Onset</b><span>FaceTime stroke check-in</span></div>
+    <div class="brand"><svg class="logo" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lg-dash" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3FB6E8"/><stop offset="1" stop-color="#67E0D2"/></linearGradient></defs><path d="M415.51 181.62A176 176 0 1 1 240.66 80.67" fill="none" stroke="url(#lg-dash)" stroke-width="64" stroke-linecap="round"/><circle cx="344" cy="103.58" r="35.84" fill="#FF6B57"/></svg><b>Onset</b><span>FaceTime stroke check-in</span></div>
     <div class="timeline" id="timeline"></div>
     <div class="right">
       <span class="badge" id="runbadge">no call yet</span>

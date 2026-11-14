@@ -2,7 +2,7 @@
 //
 //   node tools/video/record.cjs --url URL --out DIR [--seconds 20] [--dsf 1]
 //        [--run "wsl.exe -d Ubuntu -- bash /home/.../demo_run.sh escalate"] [--run-at 1.5] [--tail 3]
-//        [--keys "2:ArrowRight,6:ArrowRight"] [--pre 1.2] [--headed]
+//        [--keys "2:ArrowRight,6:ArrowRight"] [--pre 1.2] [--init page-script.js] [--headed]
 //
 // Needs `playwright` (uses the installed Chrome, channel "chrome") and `ffmpeg-static`, found
 // through NODE_PATH. Writes DIR/frames/*.jpg, DIR/frames.ffconcat and DIR/clip.mp4.
@@ -22,9 +22,9 @@ function args() {
     const k = v[i].replace(/^--/, '');
     if (k === 'headed') { a.headed = true; continue; }
     const val = v[++i];
-    const map = { url: 'url', out: 'out', seconds: 'seconds', dsf: 'dsf', run: 'run', 'run-at': 'runAt', tail: 'tail', keys: 'keys', w: 'w', h: 'h', quality: 'quality', wait: 'wait', pre: 'pre' };
+    const map = { url: 'url', out: 'out', seconds: 'seconds', dsf: 'dsf', run: 'run', 'run-at': 'runAt', tail: 'tail', keys: 'keys', w: 'w', h: 'h', quality: 'quality', wait: 'wait', pre: 'pre', init: 'init' };
     if (!map[k]) throw new Error(`unknown flag --${k}`);
-    a[map[k]] = ['url', 'out', 'run', 'keys', 'wait'].includes(map[k]) ? val : Number(val);
+    a[map[k]] = ['url', 'out', 'run', 'keys', 'wait', 'init'].includes(map[k]) ? val : Number(val);
   }
   if (!a.url || !a.out) throw new Error('--url and --out are required');
   return a;
@@ -45,6 +45,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const ctx = await browser.newContext({ viewport: { width: a.w, height: a.h }, deviceScaleFactor: a.dsf, colorScheme: 'dark' });
   const page = await ctx.newPage();
   page.on('pageerror', e => console.error('pageerror:', e.message));
+  if (a.init) await page.addInitScript({ path: a.init });
   await page.goto(a.url, { waitUntil: 'load' });
   if (a.wait) await page.waitForSelector(a.wait, { timeout: 15000 }).catch(() => {});
   await sleep(a.pre * 1000);

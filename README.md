@@ -1,3 +1,5 @@
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="web/brand/logo.svg"><img src="web/brand/logo-light.svg" alt="Onset" width="420"></picture></p>
+
 # Onset
 
 [![ci](https://github.com/arnavt687/onset/actions/workflows/ci.yml/badge.svg)](https://github.com/arnavt687/onset/actions/workflows/ci.yml)
