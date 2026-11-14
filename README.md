@@ -72,6 +72,39 @@ The dashboard is at http://localhost:8765 (`tools/dashboard.py`); the pitch deck
 browser demo of the three measurements, is `tools/pitch.sh` → http://localhost:8770
 ([web/pitch/README.md](web/pitch/README.md)).
 
+## Longitudinal tracking
+
+Every check-in is archived on this machine when the call ends (`onset/events.py`):
+`runs/<run_id>/events.jsonl` holds each step's metrics and the decision, next to the last
+annotated frame and the agent's spoken lines. The caller's own video and audio are kept
+only with `ONSET_RECORD=1` (`recordings/<run_id>/`). `runs/`, `recordings/` and `baselines/`
+are gitignored and never leave the machine.
+
+`onset/history.py` reads those archives after the fact (nothing in the call flow changes) and
+lines up one person's check-ins over a rolling 90-day window from the first one:
+
+- per check-in: date, outcome, smile asymmetry, arm drift left / right / difference, word error
+  rate, words per minute, longest pause, and any step that was not measured cleanly;
+- per measurement: least-squares slope, change against the baseline, last 7 days against the
+  7 days before, and how many check-ins reached the change threshold from `onset/decide.py`;
+- a **gradual decline** flag when a measurement moves steadily toward its threshold although
+  no single check-in reached it (rules in [docs/thresholds.md](docs/thresholds.md#longitudinal-trends)).
+
+Unreadable or unfinished archives are skipped and counted, never fatal.
+
+```bash
+.venv/bin/python tools/demo_history.py                                  # 14 synthetic daily check-ins
+.venv/bin/python tools/history_report.py --patient demo-patient --out history.html   # care-team summary
+.venv/bin/python tools/history_report.py --patient demo-patient --json  # the same as JSON
+```
+
+The report is one self-contained HTML file (owner-only on disk): a plain-language summary,
+the trend flags, a sparkline per measurement with its baseline and threshold, and a table of
+check-ins. It describes measurements only and never names a condition. The dashboard's
+**Trend** button shows the same sparklines for the person on the current call (or open it
+with `?patient=<id>&trend=1`), from `GET /api/history?patient=<id>`. Sending the report to a
+care team is not automated yet.
+
 ## Test without FaceTime
 
 ```bash

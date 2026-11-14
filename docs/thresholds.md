@@ -186,6 +186,52 @@ baseline's, the step is UNCLEAR ("A different sentence was used than at the usua
 WER and the pause are still compared (a large error still escalates); rate and confidence are
 not, because they depend on the sentence.
 
+## Longitudinal trends
+
+`decide()` judges one check-in at a time. `onset/history.py` reads the archived check-ins
+(`runs/<run_id>/events.jsonl`) and looks across them, to catch a slow drift that no single
+call flags. It changes no outcome and adds nothing to the call: it is a report for the care
+team (`tools/history_report.py`, and the dashboard's Trend panel).
+
+**Which numbers.** Only numbers from steps whose quality was `OK`, the same ones `decide()`
+uses. Each run's own `run_started` event carries the baseline it was compared with; the
+trends use the latest run's baseline, or `baselines/<id>.json` if no run carried one.
+
+**The line each metric is drawn against** is the main per-metric rule above, applied to that
+baseline:
+
+| Metric | Change threshold in the trend | From |
+|---|---|---|
+| Smile asymmetry | baseline + `face_asymmetry_increase` | 0.10 |
+| Arm drift difference | min(baseline + `arm_drift_difference_increase`, `arm_drift_difference_absolute`) | 0.06, 0.20 |
+| Left / right arm drift | `arm_single_drift_absolute` | 0.50 |
+| Word error rate | baseline + `speech_wer_increase` | 0.10 |
+| Words per minute | baseline × (1 − `speech_rate_drop_fraction`) | 0.80 × |
+| Longest pause | max(`speech_pause_floor_s`, baseline + `speech_pause_increase_s`), or `speech_longest_pause_s` with no stored pause | 1.0, 0.7, 1.5 |
+
+The side-switch, word-count and confidence rules have no single line to draw, so the trend
+does not model them; they still decide each call.
+
+**Trend settings** (`TrendSettings` in `onset/history.py`; prototype values like everything here):
+
+| Name | Default | Meaning |
+|---|---|---|
+| `window_days` | 90 | rolling window, starting at the first check-in (the first 90 days home) |
+| `compare_days` | 7 | the last 7 days against the 7 days before |
+| `min_points` | 5 | measured check-ins needed before a gradual decline can be flagged |
+| `min_correlation` | 0.6 | \|r\| of the least-squares line against time: "steady", not noise |
+| `min_progress` | 0.5 | the fitted latest value has covered half the distance from baseline to threshold |
+
+**Gradual decline** is flagged when all of these hold for a metric in the window: at least
+`min_points` measurements; the least-squares slope points toward the threshold with
+\|r\| ≥ `min_correlation`; the fitted value at the latest check-in is at least
+`min_progress` of the way from the baseline (or, with no baseline, from the fitted first
+value) to the threshold; and no check-in reached the threshold. A metric that did reach it
+is reported as "threshold reached" instead, since a call at or past it normally escalated
+already (the trend uses the latest baseline, which can differ from the one a call used). The report
+also gives a straight-line estimate of the days left before the threshold; it is an
+extrapolation, not a forecast.
+
 ## Tuning from recorded data
 
 Use the recorder and replay tools (piece 7: `tools/record.py`, `tools/replay.py`) to build a
