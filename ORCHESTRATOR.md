@@ -5,7 +5,7 @@ The orchestrator keeps this file current.
 
 **Project status:** IN PROGRESS   <!-- the resume job stops nudging only when this says COMPLETE -->
 
-**Waiting on user:** no (sessions below are working). USER APPROVED (14 Nov): orchestrator uploads video v2 to the user's YouTube as UNLISTED, puts the link in Devpost, makes sure satvikranga60@gmail.com is on the team. Do NOT click Submit; the user submits.   <!-- when "yes", the resume job leaves the orchestrator alone -->
+**Waiting on user:** yes (user must drag onset-demo-v2.mp4 into the open YouTube Studio upload dialog; Chrome upload tool caps at 10 MB). USER APPROVED (14 Nov): orchestrator uploads video v2 to the user's YouTube as UNLISTED, puts the link in Devpost, makes sure satvikranga60@gmail.com is on the team. Do NOT click Submit; the user submits.   <!-- when "yes", the resume job leaves the orchestrator alone -->
 
 ## Sessions the resume job watches
 
@@ -14,16 +14,16 @@ The orchestrator keeps this file current.
 | local_d6306b8b-9726-404e-a561-955849962a28 | Orchestrator (main session) | yes |
 | local_e7ebf3e6-c8ac-4d27-923e-74acfa86c28d | chert-voice: why callers hear no agent audio (DONE, PR #16 merged: Chert's Mac audio broken both ways, `audio_ready:false`; see docs/chert-audio.md) | no |
 | local_0053261f-bc4f-46be-a326-8055b2809ecc | polish-pizzazz (DONE, merged): 3D deck `web/pitch/` (artifact https://claude.ai/artifact/JDWtXmwJmBWh5cw58z2RmU), overlay, dashboard, README, video assets `web/video/` | no |
-| local_55f03ddc-a502-4d31-a46e-315e532ae7bb | onset-framing: arms/face not in frame -> warn, reposition, retry (branch piece/framing, PR) | yes |
-| local_fba7da10-3263-4e19-b829-18a6891b631f | onset-chert-ready: works on a working Chert line; caregiver joins the call on escalation; doctor; docs (piece/chert-ready-*) | yes |
-| local_0283a3c4-3a8c-4991-a5c9-867ad7ced177 | onset-video-v2: video v2 (Eric voice, user edits) + logo; due 10:30 ET -> C:\Users\arnav\Videos\onset-demo-v2.mp4 | yes |
+| local_55f03ddc-a502-4d31-a46e-315e532ae7bb | onset-framing: arms/face not in frame -> warn, reposition, retry (branch piece/framing, PR) (DONE, merged) | no |
+| local_fba7da10-3263-4e19-b829-18a6891b631f | onset-chert-ready: works on a working Chert line; caregiver joins the call on escalation; doctor; docs (piece/chert-ready-*) (DONE, merged) | no |
+| local_0283a3c4-3a8c-4991-a5c9-867ad7ced177 | onset-video-v2: video v2 (Eric voice, user edits) + logo; due 10:30 ET -> C:\Users\arnav\Videos\onset-demo-v2.mp4 (DONE, merged) | no |
 
 Finished, no longer watched: onset-face, onset-arms, onset-speech, onset-decide, onset-harness,
 onset-chert-api (PRs #10–#15, all merged into `main` on 14 Nov 2026).
 
 ## Plan (orchestrator's checklist)
 
-0. [ ] 14 Nov sprint (user edits): escalation now = caregiver added to the call + strong 911 (script.py, bc98b90);
+0. [x] 14 Nov sprint (merged: #17-#25; 640 tests; video v2 done). Remaining: YouTube upload + Devpost link (user edits): escalation now = caregiver added to the call + strong 911 (script.py, bc98b90);
    video v2 + logo; framing retry; Chert-ready. Merge PRs, then put the v2 link and updated wording into Devpost
    (drop no-LLM / never-diagnoses / synthetic wording there too).
 
