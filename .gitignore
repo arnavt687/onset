@@ -1,0 +1,19 @@
+# Secrets: keys live only in .env.local on this machine
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Generated audio/video and call recordings (may contain a person's face or voice)
+*.wav
+*.mp3
+*.mp4
+recordings/
+baselines/
+
+# Local logs
+*.log
