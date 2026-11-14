@@ -5,7 +5,7 @@ The orchestrator keeps this file current.
 
 **Project status:** IN PROGRESS   <!-- the resume job stops nudging only when this says COMPLETE -->
 
-**Waiting on user:** yes (Devpost 4/5, ready for review: user ticks rules box + Submit. REAL Devpost deadline: Nov 15 2026 8:00am EST (Devpost page). DEV Writing Challenge prize selected; DEV post PUBLISHED (user asked): https://dev.to/arnav_t_173f963b39a3c9c52/i-built-a-stroke-check-in-you-facetime-and-the-hardest-bug-wasnt-mine-1a26 (AI disclosure: Fully Autonomous). Video https://youtu.be/L58lr_4DPik unlisted, 2:17; Devpost says <2 min, user decides). USER APPROVED (14 Nov): orchestrator uploads video v2 to the user's YouTube as UNLISTED, puts the link in Devpost, makes sure satvikranga60@gmail.com is on the team. Do NOT click Submit; the user submits.   <!-- when "yes", the resume job leaves the orchestrator alone -->
+**Waiting on user:** no. DEVPOST SUBMITTED by the user (14 Nov ~10:50 ET, 5/5, SUBMITTED). Remaining: try-it demo (background agent, branch piece/try) -> merge -> Pages /onset/try/ live -> tell user. DEV Writing Challenge prize selected; DEV post PUBLISHED (user asked): https://dev.to/arnav_t_173f963b39a3c9c52/i-built-a-stroke-check-in-you-facetime-and-the-hardest-bug-wasnt-mine-1a26 (AI disclosure: Fully Autonomous). Video https://youtu.be/L58lr_4DPik unlisted, 2:17; Devpost says <2 min, user decides). USER APPROVED (14 Nov): orchestrator uploads video v2 to the user's YouTube as UNLISTED, puts the link in Devpost, makes sure satvikranga60@gmail.com is on the team. Do NOT click Submit; the user submits.   <!-- when "yes", the resume job leaves the orchestrator alone -->
 
 ## Sessions the resume job watches
 
