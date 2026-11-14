@@ -2,7 +2,6 @@
 
 [![ci](https://github.com/arnavt687/onset/actions/workflows/ci.yml/badge.svg)](https://github.com/arnavt687/onset/actions/workflows/ci.yml)
 ![research prototype](https://img.shields.io/badge/research%20prototype-not%20a%20medical%20device-ff5b45)
-![decision](https://img.shields.io/badge/decision-fixed%20rules%2C%20no%20LLM-67e0d2)
 
 ![Onset: a one-minute stroke check-in you FaceTime](docs/demo/screenshots/polish/readme-hero.jpg)
 
@@ -20,14 +19,14 @@ unclear tells them to call 911 now and texts a caregiver.
   does the watching. Nearly 1 in 4 US strokes are in people who had one before (CDC, *Stroke Facts*).
 - **What it does:** a scripted 60-second call. Every instruction is a caption on Onset's video,
   so it works with the sound off.
-- **What it never does:** say "you're fine", name a condition, or put an LLM in the decision.
+- **What it never does:** say "you're fine" or name a condition.
   Anything it cannot measure clearly is treated exactly like a change.
 
 | Outcome | What the caller sees | Caregiver |
 |---|---|---|
 | No change detected | "No change from your usual check-in. If you feel unwell, call 911." | not texted |
-| Change | "Please call 911 now. Your caregiver is being texted." | iMessage: what was noticed |
-| Unclear | "I could not check clearly. Please call 911 now." | iMessage: what could not be checked |
+| Change | "Change noticed. Adding your caregiver to this call. Please call 911 now." | joined to the call + iMessage: what was noticed |
+| Unclear | "I could not check clearly. Adding your caregiver. Please call 911 now." | joined to the call + iMessage: what could not be checked |
 
 ## How it works
 

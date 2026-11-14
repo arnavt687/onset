@@ -60,9 +60,9 @@ DONE = ("Thank you. You can lower your arms.", "You can lower your arms.")
 DECIDING = ("Thank you. One moment.", "Thank you. One moment.")
 CLOSE = {
     "escalate": ("Some of your results were different from your usual check-in. Please call 9 1 1 now. "
-                 "I am texting your caregiver.", "Please call 911 now. Your caregiver is being texted."),
+                 "I am adding your caregiver to this call now.", "Change noticed. Adding your caregiver to this call. Please call 911 now."),
     "unclear": ("I could not check everything clearly this time. To be safe, please call 9 1 1 now. "
-                "I am texting your caregiver.", "I could not check clearly. Please call 911 now."),
+                "I am adding your caregiver to this call now.", "I could not check clearly. Adding your caregiver. Please call 911 now."),
     "no_change": ("I didn't notice any change from your usual check-in. If you feel unwell at any time, "
                   "call 9 1 1. Goodbye.", "No change from your usual check-in. If you feel unwell, call 911."),
     "first_run": ("Thank you. I've recorded your usual check-in, so I can compare next time. If you feel "

@@ -75,17 +75,17 @@ DECIDING = Line(say="Thank you. One moment.", caption="Thank you. One moment.")
 CLOSE_ESCALATE = Line(
     say=(
         "Some of your results were different from your usual check-in. "
-        "Please call 9 1 1 now. I am texting your caregiver."
+        "I am adding your caregiver to this call now. Please call 9 1 1."
     ),
-    caption="Please call 911 now. Your caregiver is being texted.",
+    caption="Change noticed. Adding your caregiver to this call. Please call 911 now.",
 )
 
 CLOSE_UNCLEAR = Line(
     say=(
         "I could not check everything clearly this time. "
-        "To be safe, please call 9 1 1 now. I am texting your caregiver."
+        "I am adding your caregiver to this call now. To be safe, please call 9 1 1."
     ),
-    caption="I could not check clearly. Please call 911 now.",
+    caption="I could not check clearly. Adding your caregiver. Please call 911 now.",
 )
 
 CLOSE_NO_CHANGE = Line(
