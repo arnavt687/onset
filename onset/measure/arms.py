@@ -13,7 +13,18 @@ Layout of this module
   directly, so all the maths below runs without MediaPipe.
 * Pure functions on a list of samples: `body_track` (camera-motion-compensated wrist tracks),
   `find_hold_start`, `find_hold_end`, `analyse` (-> ArmResult).
-* `ArmMeter` wraps MediaPipe for live use: `add(frame)`, `arms_up()`, `result()`, `draw()`.
+* `ArmMeter` wraps MediaPipe for live use: `add(frame)`, `arms_up()`, `result()`, `draw()`,
+  `reset()`.
+
+Robustness and re-prompting
+---------------------------
+`ArmMeter.add()` and `result()` never raise. A frame on which MediaPipe (or the frame itself)
+fails is counted and recorded as a frame with no body, so failures lower the coverage instead
+of being ignored; if failures reach the number of good frames, `result()` is ERROR (the same
+rule as FaceMeter). `ArmMeter.reset()` clears the samples, the detected hold start and the
+failure counts so the flow can re-prompt "raise both arms" with the same meter (the model stays
+loaded). MediaPipe's VIDEO-mode timestamps keep increasing across a reset even though
+`Frame.t` restarts at 0.
 
 Coordinates
 -----------
@@ -448,12 +459,12 @@ class ArmMeter:
         stride: int = 1,
         landmarker=None,
     ) -> None:
-        self.samples: list[PoseSample] = []
         self.input_width = input_width
         self.stride = max(1, stride)
-        self._n = 0
         self._last_ms = -1
-        self._t0: float | None = None
+        self._ts_offset = 0
+        self.reset()
+        self._rebase = False  # the very first frame keeps its own timestamp
         self._landmarker = landmarker
         if landmarker is None and model_path:
             from mediapipe.tasks import python as mpt
@@ -466,32 +477,74 @@ class ArmMeter:
             )
             self._landmarker = vision.PoseLandmarker.create_from_options(opts)
 
+    def reset(self) -> None:
+        """Forget every frame fed so far, to re-prompt the arm step with the same meter.
+
+        Clears the samples, the detected hold start (`arms_up()` becomes False again) and the
+        failure counts. MediaPipe timestamps stay strictly increasing: the next frame continues
+        after the last one sent, whatever its Frame.t.
+        """
+        self.samples: list[PoseSample] = []
+        self._n = 0
+        self._t0: float | None = None
+        self._n_ok = 0
+        self._n_errors = 0
+        self._errors: list[str] = []
+        self._rebase = True  # re-anchor timestamps on the next frame
+
+    def _timestamp_ms(self, t: float) -> int:
+        t_ms = int(t * 1000)
+        if self._rebase:
+            self._ts_offset = self._last_ms + 1 - t_ms
+            self._rebase = False
+        ms = max(self._ts_offset + t_ms, self._last_ms + 1)
+        self._last_ms = ms
+        return ms
+
     # -- input ---------------------------------------------------------------------------
     def add(self, frame: Frame) -> None:
+        """Run the pose model on one frame. Never raises: a failure is counted (see module doc)."""
         self._n += 1
         if (self._n - 1) % self.stride:
             return
-        import cv2
-        import mediapipe as mp
+        t = size = luma = None
+        try:
+            import cv2
+            import mediapipe as mp
 
-        h, w = frame.rgb.shape[:2]
-        img = frame.rgb
-        if self.input_width and w > self.input_width:
-            img = cv2.resize(img, (self.input_width, round(h * self.input_width / w)), interpolation=cv2.INTER_AREA)
-        img = np.ascontiguousarray(img)
-        ms = max(int(frame.t * 1000), self._last_ms + 1)
-        self._last_ms = ms
-        out = self._landmarker.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=img), ms)
-        lms = out.pose_landmarks[0] if out.pose_landmarks else None
-        self.add_sample(sample_from_landmarks(frame.t, lms, (w, h), frame_luma(img)))
+            t = float(frame.t)
+            h, w = frame.rgb.shape[:2]
+            size = (int(w), int(h))
+            img = frame.rgb
+            if self.input_width and w > self.input_width:
+                img = cv2.resize(img, (self.input_width, round(h * self.input_width / w)), interpolation=cv2.INTER_AREA)
+            img = np.ascontiguousarray(img)
+            luma = frame_luma(img)
+            ms = self._timestamp_ms(t)
+            out = self._landmarker.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=img), ms)
+            lms = out.pose_landmarks[0] if out.pose_landmarks else None
+            sample = sample_from_landmarks(t, lms, size, luma)
+        except Exception as e:  # never let one bad frame break the call
+            self._n_errors += 1
+            self._errors = (self._errors + [f"{type(e).__name__}: {e}"[:200]])[-3:]
+            last_size = next((s.size for s in reversed(self.samples)), None)
+            if t is not None and np.isfinite(t) and (size or last_size):
+                # Counts as a frame with no body, so failures lower the coverage.
+                self.add_sample(PoseSample(t, None, size or last_size, luma if luma is not None else 128.0))
+            return
+        self._n_ok += 1
+        self.add_sample(sample)
 
     def add_sample(self, sample: PoseSample) -> None:
         """Feed a precomputed sample (tests, replays)."""
         self.samples.append(sample)
         if self._t0 is None and len(self.samples) >= 3:
             # Only the recent past matters for the start; keep this O(window) per frame.
-            recent = [s for s in self.samples if s.t >= sample.t - STABLE_S - 0.5]
-            self._t0 = find_hold_start(body_track(recent))
+            try:
+                recent = [s for s in self.samples if s.t >= sample.t - STABLE_S - 0.5]
+                self._t0 = find_hold_start(body_track(recent))
+            except Exception:  # a malformed sample must not break the call
+                self._t0 = None
 
     # -- output --------------------------------------------------------------------------
     def arms_up(self) -> bool:
@@ -503,7 +556,16 @@ class ArmMeter:
         return self._t0
 
     def result(self) -> ArmResult:
-        return analyse(self.samples)
+        """The step's ArmResult. Never raises."""
+        if self._n_errors and self._n_errors >= max(1, self._n_ok):
+            return _result(Quality.ERROR, reason="landmarker_failed", errors=self._n_errors,
+                           error_messages=list(self._errors))
+        try:
+            res = analyse(self.samples)
+            res.detail["errors"] = self._n_errors
+        except Exception as e:  # defensive
+            return _result(Quality.ERROR, reason=f"{type(e).__name__}: {e}"[:300])
+        return res
 
     def live(self) -> dict:
         """Numbers for the overlay: hold elapsed and drift so far."""

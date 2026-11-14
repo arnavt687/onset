@@ -49,9 +49,10 @@ class FaceResult:
     """Smile check: does one side of the mouth lift less than the other?"""
 
     quality: Quality
-    # Normalized difference in mouth-corner lift between the two sides, 0 = symmetric.
-    # Corner lift = neutral-to-smile upward movement of each mouth corner, divided by the
-    # distance between the eyes so it does not depend on how close the camera is.
+    # 1 - weaker_lift / stronger_lift, in [0, 1]: 0 = both mouth corners lifted equally,
+    # 1 = one side did not lift at all. Corner lift = neutral-to-smile movement of each mouth
+    # corner up and outward, in inter-ocular distances (so camera distance cancels); the
+    # per-side lifts are in detail["lift_left"] / detail["lift_right"].
     asymmetry: float | None
     weaker_side: str | None  # "left" | "right" (the person's own left/right) | None
     frames_used: int
@@ -108,6 +109,16 @@ class Baseline:
     speech_words_per_minute: float
     sentence: str
     samples: int = 1  # how many check-ins were averaged into this baseline
+    # Added later, all optional so older baseline files still load (None = not recorded).
+    # Per-side values let decide notice the weaker side switching between check-ins.
+    face_weaker_side: str | None = None  # "left" | "right" | None (within noise)
+    face_lift_left: float | None = None  # mean corner lift, inter-ocular distances
+    face_lift_right: float | None = None
+    arm_drift_left: float | None = None  # mean wrist drift, shoulder widths (positive = down)
+    arm_drift_right: float | None = None
+    arm_weaker_side: str | None = None  # "left" | "right" | None (within noise)
+    speech_longest_pause_s: float | None = None  # mean longest pause inside the sentence
+    speech_mean_logprob: float | None = None  # mean Scribe word confidence (<= 0)
 
 
 class Outcome(str, Enum):

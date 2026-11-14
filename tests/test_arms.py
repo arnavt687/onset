@@ -350,3 +350,100 @@ def test_measure_arms_without_person(model_path):
     blank = np.full((H, W, 3), 128, np.uint8)
     r = A.measure_arms([Frame(blank, i / FPS) for i in range(20)], model_path)
     assert r.quality == Quality.NO_SUBJECT
+
+
+# --------------------------------------------------------------------------------------------
+# Review fixes: never raise, reset()
+
+
+class StubPose:
+    """Stands in for MediaPipe Pose: plan(i) -> "fail" | None (no pose)."""
+
+    def __init__(self, plan):
+        self.plan = plan
+        self.calls = 0
+        self.timestamps: list[int] = []
+
+    def detect_for_video(self, image, ms):
+        from types import SimpleNamespace
+
+        i = self.calls
+        self.calls += 1
+        self.timestamps.append(ms)
+        if self.plan(i) == "fail":
+            raise RuntimeError("pose landmarker crashed")
+        return SimpleNamespace(pose_landmarks=[])
+
+    def close(self):
+        pass
+
+
+SMALL = np.full((180, 320, 3), 120, np.uint8)
+
+
+@pytest.fixture
+def mp_module():
+    pytest.importorskip("cv2")
+    return pytest.importorskip("mediapipe")
+
+
+def test_add_never_raises_when_mediapipe_fails(mp_module):
+    # Fix 10: a MediaPipe error used to propagate out of add() into the call.
+    m = A.ArmMeter(model_path="", landmarker=StubPose(lambda i: "fail"))
+    for k in range(30):
+        m.add(Frame(SMALL, k / FPS))
+    r = m.result()
+    assert r.quality == Quality.ERROR
+    assert r.detail["errors"] == 30
+
+
+def test_bad_frame_never_raises(mp_module):
+    m = A.ArmMeter(model_path="", landmarker=StubPose(lambda i: None))
+    m.add(Frame(None, 0.0))  # no image at all
+    m.add(Frame(SMALL, float("nan")))
+    assert m.result().quality == Quality.ERROR
+
+
+def test_some_failures_count_as_frames_without_a_body(mp_module):
+    m = A.ArmMeter(model_path="", landmarker=StubPose(lambda i: "fail" if i % 3 == 0 else None))
+    for k in range(30):
+        m.add(Frame(SMALL, k / FPS))
+    assert len(m.samples) == 30  # failed frames are kept as "no body", not dropped
+    r = m.result()
+    assert r.quality == Quality.NO_SUBJECT
+    assert r.detail["errors"] == 10
+
+
+def test_reset_clears_the_step_and_keeps_timestamps_increasing(mp_module):
+    # Fix 11: re-prompt "raise both arms" with the same meter; Frame.t restarts at 0.
+    stub = StubPose(lambda i: None)
+    m = A.ArmMeter(model_path="", landmarker=stub)
+    for s in make_samples():
+        m.add_sample(s)
+    assert m.arms_up()
+    for k in range(15):
+        m.add(Frame(SMALL, k / FPS))
+    first = list(stub.timestamps)
+    m.reset()
+    assert m.samples == [] and not m.arms_up() and m.hold_start() is None
+    for k in range(15):
+        m.add(Frame(SMALL, k / FPS))
+    ts = stub.timestamps
+    assert all(b > a for a, b in zip(ts, ts[1:])), "MediaPipe needs strictly increasing timestamps"
+    assert ts[len(first)] > first[-1]
+    assert ts[len(first) + 1] - ts[len(first)] == pytest.approx(1000 / FPS, abs=1)
+    assert len(m.samples) == 15
+
+
+def test_reset_after_failures_allows_a_clean_retry():
+    m = A.ArmMeter(model_path="", landmarker=object())
+    m._n_errors = 5  # as if MediaPipe had failed on the first attempt
+    assert m.result().quality == Quality.ERROR
+    m.reset()
+    for s in make_samples():
+        m.add_sample(s)
+    assert m.result().quality == Quality.OK
+
+
+def test_reset_is_documented():
+    assert "reset()" in A.__doc__ and A.ArmMeter.reset.__doc__

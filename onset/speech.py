@@ -2,8 +2,15 @@
 
 Owner: the `speech` session. See ROADMAP.md, piece 3.
 
-`check_sentence` never raises into the call: every failure becomes a `SpeechResult` whose
-quality is not OK, which the flow treats as "could not tell" (UNCLEAR).
+`check_sentence` never raises into the call (apart from `CancelledError`): every failure,
+including a malformed Scribe response, becomes a `SpeechResult` whose quality is not OK, which
+the flow treats as "could not tell" (UNCLEAR).
+
+Low confidence: Scribe rewrites mildly slurred words into the right ones (WER 0), so word
+confidence is checked too. If any content word's logprob is below `LOW_CONFIDENCE_MIN_LOGPROB`
+(-0.5, notes/speech.md), or Scribe returned no confidence at all, quality is PARTIAL and
+`detail["low_confidence"]` is True (or `detail["confidence_missing"]`), which decide reports
+as UNCLEAR ("Some words were hard to make out").
 
 What goes into `detail` (all plain JSON values, safe to log; never the API key):
 - `audio`: duration, levels (dBFS), clipping fraction, `too_quiet` / `clipped` flags
@@ -13,6 +20,7 @@ What goes into `detail` (all plain JSON values, safe to log; never the API key):
 - `fillers`, `audio_events`: "um"/"uh" and "(mumbling)"-style tags that were dropped before WER
 - `mean_logprob`, `min_logprob`, `low_confidence_words`: Scribe's confidence; low values hint
   that it guessed (it rewrites mild slurring into the right words, so WER alone misses it)
+- `low_confidence` (bool), `confidence_missing` (bool), `expected_words` (normalized count)
 - `onset_delay_s`: seconds from the start of the clip to the first word
 - `autocorrect_note`: what we know about Scribe pulling slurred speech toward real words
 """
@@ -52,7 +60,11 @@ CLIP_LEVEL = 32000  # |sample| at or above this counts as clipped
 CLIP_FRACTION = 0.005  # more than 0.5% clipped samples makes the audio "clipped"
 
 # Provisional: TTS clear speech stayed above -0.10, mild slurring dipped to -0.13..-0.36.
-LOW_LOGPROB = -0.15
+LOW_LOGPROB = -0.15  # words below this are listed in detail["low_confidence_words"]
+# Any content word below this makes the result PARTIAL (notes/speech.md: "min_logprob < -0.5").
+# Garbled speech measured about -0.85. Lower it only with recorded data from real callers.
+LOW_CONFIDENCE_MIN_LOGPROB = -0.5
+ERROR_TEXT_MAX = 300  # characters of error text kept in detail (after redacting the key)
 
 # Measured in the integration run and probe, 2026-11-13; see notes/speech.md.
 AUTOCORRECT_NOTE = (
@@ -307,12 +319,71 @@ async def transcribe(
             timeout=aiohttp.ClientTimeout(total=timeout_s),
         ) as resp:
             if resp.status != 200:
-                body = (await resp.text())[:300]
+                # Redact before truncating, so a key cut at the boundary cannot leak a prefix.
+                body = redact(await resp.text(), api_key)[:ERROR_TEXT_MAX]
                 raise RuntimeError(f"Scribe HTTP {resp.status}: {body}")
             return await resp.json()
     finally:
         if own:
             await session.close()
+
+
+def redact(text: str, key: str | None) -> str:
+    """Replace every occurrence of the API key. Call before truncating."""
+    return text.replace(key, "***") if key else text
+
+
+def _error_text(prefix: str, exc: BaseException, key: str | None) -> str:
+    return redact(f"{prefix}{type(exc).__name__}: {exc}", key)[:ERROR_TEXT_MAX]
+
+
+class MalformedResponse(ValueError):
+    """Scribe's JSON did not have the shape we rely on."""
+
+
+def _number_or_none(value: object, what: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise MalformedResponse(f"{what} is not a finite number")
+    return float(value)
+
+
+def _parse_tokens(data: object) -> tuple[list[dict], str]:
+    """Validated word tokens (text, type, start, end, logprob) and the raw text.
+
+    Raises MalformedResponse on anything we cannot trust: a body that is not an object, a
+    `words` that is not a list, a token that is not an object, a word without text, or a
+    timestamp that is not a number.
+    """
+    if not isinstance(data, dict):
+        raise MalformedResponse("response is not a JSON object")
+    raw = data.get("words")
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        raise MalformedResponse("words is not a list")
+    tokens = []
+    for i, w in enumerate(raw):
+        if not isinstance(w, dict):
+            raise MalformedResponse(f"token {i} is not an object")
+        kind = w.get("type")
+        text = w.get("text")
+        if text is None and kind != "word":
+            text = ""
+        if not isinstance(text, str):
+            raise MalformedResponse(f"token {i} has no text")
+        start = _number_or_none(w.get("start"), f"token {i} start")
+        end = _number_or_none(w.get("end"), f"token {i} end")
+        lp = w.get("logprob")
+        # A confidence we cannot read is dropped (counted as missing), not trusted.
+        if isinstance(lp, bool) or not isinstance(lp, (int, float)) or not math.isfinite(lp):
+            lp = None
+        tokens.append({"text": text, "type": kind, "start": start, "end": end, "logprob": lp})
+    text = data.get("text")
+    if text is not None and not isinstance(text, str):
+        raise MalformedResponse("text is not a string")
+    return tokens, (text or "").strip()
 
 
 def _speech_timing(words: list[dict]) -> tuple[float | None, float | None, float | None]:
@@ -337,23 +408,51 @@ async def check_sentence(
     model_id: str = DEFAULT_MODEL,
     session: aiohttp.ClientSession | None = None,
 ) -> SpeechResult:
-    """Transcribe the caller's attempt and compare it with the expected sentence."""
+    """Transcribe the caller's attempt and compare it with the expected sentence.
+
+    Never raises (apart from `CancelledError`): anything unexpected becomes Quality.ERROR.
+    """
     detail: dict = {"model": model_id, "autocorrect_note": AUTOCORRECT_NOTE}
 
     def result(quality: Quality, transcript=None, wer=None, wpm=None, pause=None) -> SpeechResult:
         return SpeechResult(quality, expected, transcript, wer, wpm, pause, detail)
 
     try:
+        return await _check(clip, expected, api_key, model_id, session, detail, result)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # last-resort net: the call must never crash on this step
+        key = api_key
+        if not key:
+            try:
+                key = load_api_key()
+            except Exception:
+                key = None
+        detail["error"] = _error_text("unexpected: ", exc, key)
+        return result(Quality.ERROR)
+
+
+async def _check(clip, expected, api_key, model_id, session, detail, result) -> SpeechResult:
+    if not isinstance(expected, str) or not normalize_words(expected):
+        detail["error"] = "no expected sentence"
+        return result(Quality.ERROR)
+    detail["expected_words"] = len(normalize_words(expected))
+
+    try:
         stats = audio_stats(clip)
     except Exception as exc:  # malformed buffer
-        detail["error"] = f"audio: {type(exc).__name__}: {exc}"
+        detail["error"] = _error_text("audio: ", exc, None)
         return result(Quality.ERROR)
     detail["audio"] = stats
     if stats["duration_s"] < MIN_SPEECH_S or stats["silent"]:
         detail["reason"] = "silence"
         return result(Quality.NO_RESPONSE)
 
-    key = api_key or load_api_key()
+    try:
+        key = api_key or load_api_key()
+    except Exception as exc:
+        detail["error"] = _error_text("api key: ", exc, None)
+        return result(Quality.ERROR)
     if not key:
         detail["error"] = "no ELEVENLABS_API_KEY"
         return result(Quality.ERROR)
@@ -365,33 +464,49 @@ async def check_sentence(
         raise
     except Exception as exc:
         detail["latency_s"] = round(time.monotonic() - t0, 3)
-        detail["error"] = f"{type(exc).__name__}: {str(exc)[:300]}".replace(key, "***")
+        detail["error"] = _error_text("", exc, key)  # redacted, then truncated
         return result(Quality.ERROR)
     detail["latency_s"] = round(time.monotonic() - t0, 3)
 
-    tokens = data.get("words") or []
-    events = [w.get("text", "") for w in tokens if w.get("type") == "audio_event"]
-    spoken = [w for w in tokens if w.get("type") == "word" and normalize_words(w.get("text", ""))]
-    fillers = [w for w in spoken if normalize_words(w["text"]) and normalize_words(w["text"])[0] in FILLERS]
+    try:
+        return _score(data, expected, stats, detail, result)
+    except Exception as exc:  # malformed body: list, null text, string timestamps, ...
+        for k in ("audio_events", "fillers", "words", "mean_logprob", "min_logprob",
+                  "low_confidence_words", "language", "raw_text", "alignment",
+                  "low_confidence", "confidence_missing", "word_error_rate_with_fillers",
+                  "onset_delay_s"):
+            detail.pop(k, None)
+        detail["error"] = _error_text("malformed Scribe response: ", exc, key)
+        return result(Quality.ERROR)
+
+
+def _score(data, expected: str, stats: dict, detail: dict, result) -> SpeechResult:
+    """Turn a Scribe response into the SpeechResult. Raises on a malformed response."""
+    tokens, raw_text = _parse_tokens(data)
+    events = [w["text"] for w in tokens if w["type"] == "audio_event"]
+    spoken = [w for w in tokens if w["type"] == "word" and normalize_words(w["text"])]
+    fillers = [w for w in spoken if normalize_words(w["text"])[0] in FILLERS]
     content = [w for w in spoken if w not in fillers]
     detail["audio_events"] = events
     detail["fillers"] = [w["text"] for w in fillers]
     detail["words"] = [
-        {"text": w["text"], "start": w.get("start"), "end": w.get("end"), "logprob": w.get("logprob")}
+        {"text": w["text"], "start": w["start"], "end": w["end"], "logprob": w["logprob"]}
         for w in spoken
     ]
-    logprobs = [w["logprob"] for w in content if isinstance(w.get("logprob"), (int, float))]
+    logprobs = [w["logprob"] for w in content if w["logprob"] is not None]
     if logprobs:
         detail["mean_logprob"] = round(sum(logprobs) / len(logprobs), 3)
         detail["min_logprob"] = round(min(logprobs), 3)
     detail["low_confidence_words"] = [
-        w["text"] for w in content if isinstance(w.get("logprob"), (int, float)) and w["logprob"] < LOW_LOGPROB
+        w["text"] for w in content if w["logprob"] is not None and w["logprob"] < LOW_LOGPROB
     ]
-    if data.get("language_code"):
-        detail["language"] = data.get("language_code")
+    language = data.get("language_code")
+    if isinstance(language, str) and language:
+        detail["language"] = language
 
-    raw_text = (data.get("text") or "").strip()
     detail["raw_text"] = raw_text
+    detail["low_confidence"] = False
+    detail["confidence_missing"] = False
     if not content:
         detail["reason"] = "no words heard"
         return result(Quality.NO_RESPONSE, transcript=raw_text or None)
@@ -407,14 +522,27 @@ async def check_sentence(
     detail["onset_delay_s"] = None if onset is None else round(onset, 3)
 
     quality = Quality.OK
+    reasons: list[str] = []
     level_problem = [name for name in ("too_quiet", "clipped") if stats[name]]
     if level_problem and wer > 0:
         # Errors in a bad recording might be the recording, not the person.
-        detail["reason"] = "transcript untrustworthy: " + ", ".join(level_problem)
+        reasons.append("transcript untrustworthy: " + ", ".join(level_problem))
         quality = Quality.PARTIAL
     if wpm is None:
-        detail["reason"] = "no word timestamps"
+        reasons.append("no word timestamps")
         quality = Quality.PARTIAL
+    if len(logprobs) < len(content):
+        # Without confidence we cannot tell a clear sentence from an auto-corrected slur.
+        detail["confidence_missing"] = True
+        reasons.append("no word confidence from Scribe")
+        quality = Quality.PARTIAL
+    if logprobs and min(logprobs) < LOW_CONFIDENCE_MIN_LOGPROB:
+        # Scribe guessed at least one word: a WER of 0 may hide slurring.
+        detail["low_confidence"] = True
+        reasons.append(f"low word confidence (min logprob {min(logprobs):.2f})")
+        quality = Quality.PARTIAL
+    if reasons:
+        detail["reason"] = "; ".join(reasons)
 
     return result(
         quality,

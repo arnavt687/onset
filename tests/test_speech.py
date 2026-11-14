@@ -329,3 +329,157 @@ def test_level_problems_flagged(results):
     for name in ("quiet", "clipped"):
         r = results[name]
         assert r.quality is (Quality.OK if r.word_error_rate == 0 else Quality.PARTIAL), r.detail
+
+
+# ---------------------------------------------------------------------------- review fixes (offline)
+
+DOG = SENTENCES[0]  # "You can't teach an old dog new tricks."
+DOG_WORDS = ["You", "can't", "teach", "an", "old", "dog", "new", "tricks."]
+
+
+def _scribe_body(logprobs=None, words=DOG_WORDS):
+    out = []
+    for i, text in enumerate(words):
+        tok = {"text": text, "type": "word", "start": 0.5 + 0.3 * i, "end": 0.7 + 0.3 * i}
+        lp = -0.02 if logprobs is None else logprobs[i]
+        if lp is not None:
+            tok["logprob"] = lp
+        out.append(tok)
+    return {"text": " ".join(words), "words": out, "language_code": "eng"}
+
+
+def _returns(body):
+    async def fake(c, **kwargs):
+        return body
+
+    return fake
+
+
+def test_auto_corrected_slur_with_low_confidence_is_partial(monkeypatch):
+    # Fix 1: Scribe returned the exact sentence (WER 0) but guessed at "tricks".
+    lps = [-0.02] * 7 + [speech.LOW_CONFIDENCE_MIN_LOGPROB - 0.1]
+    monkeypatch.setattr(speech, "transcribe", _returns(_scribe_body(lps)))
+    r = asyncio.run(check_sentence(clip(tone(4.0, 0.3)), DOG, api_key="x"))
+    assert r.word_error_rate == 0.0
+    assert r.quality is Quality.PARTIAL
+    assert r.detail["low_confidence"] is True
+    from onset import decide as D
+    from onset.types import ArmResult, CheckResults, FaceResult, Outcome
+    results = CheckResults(
+        face=FaceResult(Quality.OK, 0.02, None, 30),
+        arms=ArmResult(Quality.OK, 0.01, 0.0, 0.01, None, 10.0, 150),
+        speech=r, started_at="2026-11-13T14:05:00+00:00",
+    )
+    d = D.decide(results, D.Baseline("p001", "2026-11-01T10:00:00+00:00", 0.02, 0.01, 0.0, 100.0, DOG))
+    assert d.outcome is Outcome.UNCLEAR
+    assert d.reasons == ["Some words were hard to make out"]
+
+
+def test_confident_words_stay_ok(monkeypatch):
+    lps = [-0.02] * 7 + [speech.LOW_CONFIDENCE_MIN_LOGPROB + 0.1]
+    monkeypatch.setattr(speech, "transcribe", _returns(_scribe_body(lps)))
+    r = asyncio.run(check_sentence(clip(tone(4.0, 0.3)), DOG, api_key="x"))
+    assert r.quality is Quality.OK, r.detail
+    assert r.detail["low_confidence"] is False and r.detail["expected_words"] == 8
+
+
+def test_missing_confidence_is_partial(monkeypatch):
+    monkeypatch.setattr(speech, "transcribe", _returns(_scribe_body([None] * 8)))
+    r = asyncio.run(check_sentence(clip(tone(4.0, 0.3)), DOG, api_key="x"))
+    assert r.quality is Quality.PARTIAL
+    assert r.detail["confidence_missing"] is True
+
+
+def _body(kind):
+    good = _scribe_body()
+    if kind == "list body":
+        return [good]
+    if kind == "string body":
+        return "oops"
+    if kind == "null word text":
+        good["words"][2]["text"] = None
+        return good
+    if kind == "string timestamps":
+        good["words"][3]["start"] = "1.4"
+        return good
+    if kind == "bool timestamp":
+        good["words"][3]["end"] = True
+        return good
+    if kind == "nan timestamp":
+        good["words"][3]["end"] = float("nan")
+        return good
+    if kind == "words not a list":
+        good["words"] = {"0": good["words"][0]}
+        return good
+    if kind == "token not an object":
+        good["words"][1] = "can't"
+        return good
+    if kind == "text not a string":
+        good["text"] = 42
+        return good
+    raise AssertionError(kind)
+
+
+MALFORMED = ["list body", "string body", "null word text", "string timestamps", "bool timestamp",
+             "nan timestamp", "words not a list", "token not an object", "text not a string"]
+
+
+@pytest.mark.parametrize("kind", MALFORMED)
+def test_malformed_scribe_body_is_error_not_a_crash(monkeypatch, kind):
+    # Fix 9: these raised AttributeError / TypeError out of check_sentence.
+    monkeypatch.setattr(speech, "transcribe", _returns(_body(kind)))
+    r = asyncio.run(check_sentence(clip(tone(4.0, 0.3)), DOG, api_key="x"))
+    assert r.quality is Quality.ERROR
+    assert "malformed" in r.detail["error"]
+    assert r.word_error_rate is None
+    json.dumps(r.detail)
+
+
+def test_key_is_redacted_before_truncating(monkeypatch):
+    key = "sk_live_9f8e7d6c5b4a"
+
+    async def fail(c, **kwargs):  # the key straddles the 300-character cut
+        raise RuntimeError("x" * 280 + key)
+
+    monkeypatch.setattr(speech, "transcribe", fail)
+    r = asyncio.run(check_sentence(clip(tone(2.0, 0.3)), DOG, api_key=key))
+    assert r.quality is Quality.ERROR
+    assert "sk_li" not in json.dumps(r.detail)
+    assert len(r.detail["error"]) <= speech.ERROR_TEXT_MAX
+
+
+def test_http_error_body_is_redacted_before_truncating():
+    key = "sk_live_9f8e7d6c5b4a"
+
+    class Resp:
+        status = 401
+
+        async def text(self):
+            return "e" * 290 + key + " more"
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    class Session:
+        def post(self, *a, **k):
+            return Resp()
+
+    r = asyncio.run(check_sentence(clip(tone(2.0, 0.3)), DOG, api_key=key, session=Session()))
+    assert r.quality is Quality.ERROR
+    assert "HTTP 401" in r.detail["error"]
+    assert "sk_li" not in json.dumps(r.detail)
+
+
+@pytest.mark.parametrize("expected", [None, "", "!!!", 42])
+def test_bad_expected_sentence_is_error(monkeypatch, expected):
+    monkeypatch.setattr(speech, "transcribe", _returns(_scribe_body()))
+    r = asyncio.run(check_sentence(clip(tone(2.0, 0.3)), expected, api_key="x"))
+    assert r.quality is Quality.ERROR
+
+
+def test_bad_clip_is_error_not_a_crash():
+    r = asyncio.run(check_sentence(None, DOG, api_key="x"))
+    assert r.quality is Quality.ERROR
