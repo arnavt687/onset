@@ -18,6 +18,8 @@
 const CROP_METERS = [0, 90, 1500, 844];          // agent video + Face/Arms meters
 const CROP_CAREGIVER_TOP = [700, 70, 1220, 686];  // meters + caregiver iMessage header
 const CROP_CAREGIVER = [700, 354, 1220, 686];    // meters + the rest of the caregiver iMessage
+const CROP_TREND = [700, 40, 1220, 686];         // Trend drawer: per-metric sparklines (record_trend.ps1)
+const CROP_TREND_NOTES = [700, 330, 1220, 686];  // Trend drawer: trend rows + the gradual-decline notes
 
 module.exports = [
   { vo: 'n01_hook', pre: 0.8, post: 0.3, shots: [
@@ -57,7 +59,8 @@ module.exports = [
     { dash: 'escalate', ss: 49.7, speed: 1, crop: CROP_CAREGIVER },
   ] },
   { vo: 'n11_unclear', pre: 0.4, post: 0.8, shots: [
-    { phone: 'arms_reframe', dur: 6.4, k: 'Out of frame · what the caller sees', t: 'Reposition, then retry', p: 'Onset names the problem, waits for the person to move back, and re-runs the step.' },
+    { phone: 'framing_arms_both_hands', dur: 3.8, k: 'Out of frame · what the caller sees', t: 'Reposition, then retry', p: 'Onset names what it cannot see and waits for the person to move back.' },
+    { phone: 'arms_restart', dur: 2.6, k: 'Out of frame · what the caller sees', t: 'The step runs again', p: 'Once both hands are in the picture, the arm hold restarts.' },
     { dash: 'unclear', ss: 46.6, speed: 1, lower: { k: 'Persistent failure', t: 'Still unclear after a retry: escalate', alert: true, pos: 'tl' } },
   ] },
   { vo: 'n12_how', pre: 0.5, post: 0.6, shots: [
@@ -65,7 +68,8 @@ module.exports = [
   ] },
   { vo: 'n13_safety', pre: 0.4, post: 0.6, shots: [
     { deck: 12, ss: 1.3, dur: 8.2, lower: { k: 'Safety by design', t: 'Sensitivity over specificity' } },
-    { deck: 12, ss: 9.5, lower: { k: 'Longitudinal record', t: 'A 90-day trajectory for the care team' } },
+    { dash: 'trend', ss: 2.0, dur: 5.4, crop: CROP_TREND, lower: { k: 'Longitudinal record', t: 'Every check-in, trended for the care team', pos: 'tl' } },
+    { dash: 'trend', ss: 7.4, crop: CROP_TREND_NOTES },
   ] },
   { vo: 'n14_limits', pre: 0.4, post: 0.6, shots: [
     { deck: 13, ss: 1.3, lower: { k: 'Limits and what’s next', t: 'Clinician-led validation study', pos: 'br' } },

@@ -39,5 +39,7 @@
     document.head.appendChild(st);
     fix(document.body);
     new MutationObserver(ms => ms.forEach(m => fix(m.target))).observe(document.body, { subtree: true, childList: true, characterData: true });
+    // #trend (with ?patient=...): open the Trend drawer for the trend shot (record_trend.ps1).
+    if (location.hash === '#trend') setTimeout(() => { const b = document.getElementById('trendbtn'); if (b) b.click(); }, 1200);
   });
 })();
