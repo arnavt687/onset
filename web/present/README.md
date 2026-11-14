@@ -42,6 +42,28 @@ live call:
 Opened from a plain static server or GitHub Pages there is no dashboard, so the scene shows the
 browser demo.
 
+## Voice
+
+Press `V` (or click the microphone, top right) and the deck listens: say **"next slide"** and it
+moves. It stays on for next time; `?voice` in the address turns it on too.
+
+| Say | It does |
+|---|---|
+| "next slide", "move on", "next please" | next step or scene |
+| "go back", "previous slide" | back |
+| "start the demo", "let's call it" | jumps to the live demo |
+| "open the live view", "open the browser demo" | the live dashboard, or the fallback |
+| "show the smile", "show the arms", "show the speech" | that check, from anywhere |
+| "show a change", "back to normal" | acts a change on the current check, or undoes it |
+| "play it again" | replays the escalation |
+| "first slide", "last slide", "voice off" | as they say |
+
+Commands are whole phrases, so ordinary talking (a bare "next", "back" or "demo") does not move
+the deck. It uses the browser's speech recognition, so it needs **Chrome or Edge, the microphone
+and an internet connection**: the browser sends the microphone audio to its maker's speech
+service while voice is on. Without those, the keys and the clicker still work. During the call the
+microphone hears the room, so keep to the phrases above, or press `V` to switch it off.
+
 ## Keys
 
 | Key | Does |
@@ -52,6 +74,7 @@ browser demo.
 | `F` | full screen |
 | `N` | speaker notes and a timer (`T` resets it) |
 | `M` | motion on / off (also follows the system's reduce-motion setting) |
+| `V` | voice commands on / off |
 | `?` | key help |
 | The idea: `1` `2` `3`, `A` | pick a check, act a change |
 | Live demo: `L`, `B` | live call, browser demo |

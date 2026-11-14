@@ -235,6 +235,70 @@ let touchX = null;
 stage.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: true });
 stage.addEventListener('touchend', e => { if (touchX == null) return; const dx = e.changedTouches[0].clientX - touchX; touchX = null; if (Math.abs(dx) > 70 && !e.target.closest('input,iframe,button,a')) (dx < 0 ? next : back)(); }, { passive: true });
 
+/* ───────── voice: say "next slide" and it moves
+   The browser's own speech recognition (Chrome, Edge). It needs the microphone and an internet
+   connection: the browser sends the audio to its maker's speech service. Off until V is pressed.
+   Commands are whole phrases ("next slide", not "next"), so ordinary talking does not move the deck. */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const voiceBtn = $('#voice'), voiceText = $('#voice-text');
+const VOICE_IDLE = 'Say “next slide”';
+const inScene = id => SCENES[si].id === id;
+const COMMANDS = [
+  [/\b(next slide|next one|next please|move on|go forward|keep going)\b/, 'Next', () => next()],
+  [/\b(previous slide|go back|back one|one back)\b/, 'Back', () => back()],
+  [/\b(first slide|start over|back to the (start|beginning))\b/, 'First slide', () => show(0, 0)],
+  [/\b(last slide|final slide)\b/, 'Last slide', () => show(SCENES.length - 1, 0)],
+  [/\b(open|show|go to|switch to) (the |us the )?(live view|live call|dashboard)\b/, 'Live view', () => { show(DEMO, 1); mount('live'); }],
+  [/\b(open|show|go to|switch to|try) (the )?browser demo\b/, 'Browser demo', () => { show(DEMO, 1); mount('try'); }],
+  [/\b(start|go to|show|jump to|time for) (the |a |our )?(live )?demo\b|\blet'?s call it\b/, 'Live demo', () => show(DEMO, 0)],
+  [/\b(show|go to|check) (me )?(the )?smile\b/, 'Smile', () => show(SCENES.findIndex(s => s.id === 'measure'), 0)],
+  [/\b(show|go to|check) (me )?(the )?arms\b/, 'Arms', () => show(SCENES.findIndex(s => s.id === 'measure'), 1)],
+  [/\b(show|go to|check) (me )?(the )?speech\b/, 'Speech', () => show(SCENES.findIndex(s => s.id === 'measure'), 2)],
+  [/\b(show|act|make) a change\b|\bback to (normal|usual)\b/, 'Act a change', () => { if (inScene('measure')) actChange(); }],
+  [/\b(play (it|that) again|replay|show (it|that) again)\b/, 'Replay', () => { if (inScene('escalate')) { escT0 = performance.now(); escHold = -1; } }],
+  [/\b(stop listening|voice off)\b/, 'Voice off', () => setVoice(false)],
+];
+const voice = { on: false, rec: null, consumed: [], lastAt: 0, flash: 0 };
+function hear(text, index = 0) {
+  // only what is new in this utterance, so a phrase fires once however often the browser revises it
+  const t = text.toLowerCase().replace(/[’`]/g, "'"), from = voice.consumed[index] || 0;
+  for (const [re, label, run] of COMMANDS) {
+    const m = re.exec(t.slice(from));
+    if (!m) continue;
+    voice.consumed[index] = from + m.index + m[0].length;
+    if (performance.now() - voice.lastAt < 700) return null; // the same words, heard twice
+    voice.lastAt = performance.now();
+    run();
+    voiceBtn.classList.add('heard'); voiceText.textContent = `“${m[0]}” → ${label}`;
+    clearTimeout(voice.flash); voice.flash = setTimeout(() => { voiceBtn.classList.remove('heard'); if (voice.on) voiceText.textContent = VOICE_IDLE; }, 1400);
+    return label;
+  }
+  return null;
+}
+function voiceError(msg) { voice.on = false; voiceBtn.classList.remove('on'); voiceBtn.classList.add('err'); voiceBtn.setAttribute('aria-pressed', 'false'); voiceText.textContent = msg; }
+function setVoice(on) {
+  voiceBtn.classList.remove('err', 'heard');
+  if (!SR) return voiceError('Voice needs Chrome or Edge');
+  voice.on = on; voiceBtn.classList.toggle('on', on); voiceBtn.setAttribute('aria-pressed', String(on));
+  voiceText.textContent = on ? VOICE_IDLE : 'Voice off';
+  try { localStorage.setItem('onset.voice', on ? '1' : '0'); } catch { /* private window */ }
+  if (!on) { try { voice.rec?.stop(); } catch { /* not started */ } return; }
+  if (!voice.rec) {
+    const rec = new SR(); voice.rec = rec;
+    rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US';
+    rec.onresult = e => { for (let i = e.resultIndex; i < e.results.length; i++) hear(e.results[i][0].transcript, i); };
+    rec.onstart = () => { voice.consumed = []; };
+    rec.onerror = e => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') voiceError('Microphone blocked: allow it, then press V');
+      else if (e.error === 'network') voiceError('Voice needs an internet connection');
+      else if (e.error === 'audio-capture') voiceError('No microphone found');
+    };
+    rec.onend = () => { if (voice.on) setTimeout(() => { try { rec.start(); } catch { /* already running */ } }, 250); }; // the browser stops after a silence
+  }
+  try { voice.rec.start(); } catch { /* already running */ }
+}
+voiceBtn.addEventListener('click', () => setVoice(!voice.on));
+
 /* ───────── keys */
 function setMotion(on) { motion = on; document.body.classList.toggle('still', !on); world?.setMotion(on); }
 addEventListener('keydown', e => {
@@ -249,6 +313,7 @@ addEventListener('keydown', e => {
   else if (k === 'n' || k === 'N') { $('#notes').hidden = !$('#notes').hidden; }
   else if (k === 't' || k === 'T') t0 = performance.now();
   else if (k === 'm' || k === 'M') setMotion(!motion);
+  else if (k === 'v' || k === 'V') setVoice(!voice.on);
   else if (k === '?' || k === 'h' || k === 'H') $('#help').hidden = !$('#help').hidden;
   else if (k === 'Escape') $('#help').hidden = true;
   else if (id === 'measure' && '123'.includes(k)) show(si, +k - 1);
@@ -275,5 +340,6 @@ addEventListener('keydown', e => {
   const m = /^#(\d+)(?:\.(\d+))?$/.exec(location.hash);
   show(m ? +m[1] - 1 : 0, m && m[2] ? +m[2] - 1 : 0, { instant: true });
   addEventListener('hashchange', () => { const h = /^#(\d+)(?:\.(\d+))?$/.exec(location.hash); if (h) show(+h[1] - 1, h[2] ? +h[2] - 1 : 0); });
-  window.onsetDeck = { show, next, back, world, live };
+  try { if (params.has('voice') || localStorage.getItem('onset.voice') === '1') setVoice(true); } catch { /* private window */ }
+  window.onsetDeck = { show, next, back, world, live, hear, state: () => ({ scene: SCENES[si].id, step: st }) };
 })();
