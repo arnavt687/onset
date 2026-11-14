@@ -27,3 +27,6 @@ runs/
 # Pitch deck: local model copies and call recordings for the replay slide
 web/pitch/vendor/models/
 web/pitch/media/
+
+# Patient profiles hold phone numbers (config/patients.example.json shows the format)
+config/patients.json
