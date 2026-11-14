@@ -22,7 +22,7 @@ onset-chert-api (PRs #10–#15, all merged into `main` on 14 Nov 2026).
 2. [x] Chert voice investigator session started (owns the live line until it says the line is free)
 3. [x] Review and merge PRs #10–#15 (278 tests pass on main)
 4. [x] Piece 5: scripted call flow, caption-first overlay — merged (`onset/flow.py`, `script.py`, `overlay.py`, `voice.py`, `agent.py`); 312 tests pass. Fake call: `tools/fake_call_private.sh` (runs as `onset-flowtest`, never touches the line). Face/arms only tested on synthetic frames so far.
-5. [ ] Laptop demo dashboard + `tools/demo.sh` + `docs/rehearsal.md` — subagent on branch `piece/dashboard`
+5. [x] Laptop demo dashboard + `tools/demo.sh` + `docs/rehearsal.md` — merged (406 tests). Rehearse: `tools/dashboard.py` + `tools/demo_events.py --outcome escalate`. Demo day: `tools/demo.sh --check`, then `tools/demo.sh --open`.
 6. [x] Replay mode: `tools/replay_flow.py <recording>` (merged with the flow). Dashboard must keep playing `say` audio that arrives after `run_ended`.
    - Demo write-ups (run-of-show, deck text, Devpost, video plan, architecture, safety) — subagent on branch `piece/demo-docs`
    - Code review of merged pieces: 13 findings fixed on `fix/review` and merged (396 tests pass). Known limit kept on
@@ -37,7 +37,7 @@ onset-chert-api (PRs #10–#15, all merged into `main` on 14 Nov 2026).
     Slide deck published as an Artifact: https://claude.ai/artifact/1bBHtjNdPuv1yDpmrJEZxj (8 slides; files in the
     orchestrator's scratchpad `deck/`). Still to do: team names, real screenshots once the dashboard and flow land,
     match the Devpost and run-of-show wording to `onset/script.py`.
-11. [ ] One-command start script, cold-start rehearsal checklist
+11. [~] One-command start script and rehearsal checklist are merged (`tools/demo.sh`, `docs/rehearsal.md`); the cold-start rehearsal needs the line back from chert-voice
 12. [ ] Final review, README, mark this file COMPLETE and disable the resume job
 
 ## Notes for a resumed orchestrator
