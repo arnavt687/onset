@@ -20,6 +20,9 @@ Every event has "t" (seconds since the run started), "type", and the fields belo
                   retry (int, 1-based), max_retries (int), caption (str)
     say           text, audio (path relative to the run dir, or None)
     live          step, metrics (dict of small numbers for the meters, e.g. {"lift_left": 0.12})
+    vad           how the sentence recording ended: enabled (bool), reason ("speech_end"|"timer"),
+                  started_at, ended_at (seconds from "Say it now", negative = in the pre-roll, or None),
+                  speech_s, record_s, floor_db
     result        check ("face"|"arms"|"speech"), quality, data (the FaceResult/ArmResult/SpeechResult as a dict)
     decision      outcome ("escalate"|"unclear"|"no_change_detected"), reasons (list[str]),
                   baseline_used (bool)
