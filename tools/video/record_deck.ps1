@@ -2,7 +2,7 @@
 # Each clip loads the slide before, then presses ArrowRight at 0.4 s so the slide's entrance plays.
 #   powershell -File tools\video\record_deck.ps1 [-Work ...] [-Slides "2:13,1:14"]   (slide:seconds)
 param(
-  [string]$Work = "$env:LOCALAPPDATA\Temp\onset-video\work",
+  [string]$Work = "$env:LOCALAPPDATA\Temp\onset-video\work-v2",
   [string]$Slides = '2:14,1:13,8:8,9:10,10:10,7:19,12:15,13:20',
   [string]$Base = 'http://127.0.0.1:8772/pitch/index.html'
 )

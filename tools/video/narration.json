@@ -1,22 +1,21 @@
 {
-  "voice_id": "EXAVITQu4vr4xnSDxMaL",
-  "voice_name": "Sarah",
+  "voice_id": "cjVigY5qzO86Huf0OWal",
+  "voice_name": "Eric",
   "model_id": "eleven_multilingual_v2",
-  "voice_settings": {"stability": 0.6, "similarity_boost": 0.75, "style": 0.0, "use_speaker_boost": true, "speed": 0.97},
+  "voice_settings": {"stability": 0.6, "similarity_boost": 0.75, "style": 0.0, "use_speaker_boost": true, "speed": 1.0},
   "segments": [
-    {"id": "n01_hook", "text": "After a stroke or a mini-stroke, people go home, and their family becomes the early warning system. According to the CDC, nearly one in four strokes in the US happen to someone who has had one before."},
-    {"id": "n02_what", "text": "Onset is a one-minute check-in you FaceTime. No app to install. It runs the FAST checks, smile, arms and speech, and compares you with yourself."},
-    {"id": "n03_disclose", "text": "The runs in this video are synthetic: Onset's real software, fed simulated check-ins. No real person or patient appears."},
-    {"id": "n04_smile", "text": "First, a smile. Face landmarks measure how far each corner of the mouth lifts."},
-    {"id": "n05_arms", "text": "Then both arms up for ten seconds. Each wrist is measured against the shoulders, so a wobbly phone doesn't count as drift."},
-    {"id": "n06_speech", "text": "Then a sentence to repeat. Onset checks the words, the pace, and the longest pause. Every instruction is also a caption on the agent's video, so it works with the sound off."},
-    {"id": "n07_usual", "text": "This is the judge dashboard. The first check-in records this person's usual numbers. After that, every number sits next to that baseline. And the result is never \"you're fine\". It's: no change detected, compared with your usual check-in."},
-    {"id": "n08_change", "text": "Now a simulated change. We fed in a one-sided smile, one arm sinking, and a pause in the middle of the sentence."},
-    {"id": "n09_red", "text": "Each meter crosses its threshold and turns red. Change noticed: call 911 now."},
-    {"id": "n10_caregiver", "text": "The caregiver gets an iMessage saying what Onset noticed. Here it's a dry run, so nothing was sent. It never names a condition."},
-    {"id": "n11_unclear", "text": "And anything it can't measure clearly, like arms out of frame, gets the same answer: call 911 now."},
-    {"id": "n12_how", "text": "FaceTime reaches the agent through Chert and LiveKit. MediaPipe measures the face and arms on the laptop's CPU, and ElevenLabs Scribe transcribes the sentence. Fixed rules decide. There's no LLM in the decision path."},
-    {"id": "n13_safety", "text": "It leans toward false alarms on purpose: a false alarm costs a phone call. It never says you're fine, never diagnoses, and recordings and baselines stay on the machine."},
-    {"id": "n14_limits", "text": "Onset is a research prototype, not a medical device. The thresholds are provisional, tuned on synthetic data and one person. Next is a clinician-led validation study. Built with ElevenLabs, LiveKit and Chert."}
+    {"id": "n01_hook", "text": "The weeks after hospital discharge are a high-risk window for another stroke. The CDC reports that nearly one in four US strokes are recurrent. After a TIA, ten to fifteen percent of people have a major stroke within three months, and much of that risk falls in the first weeks."},
+    {"id": "n02_what", "text": "Onset is a FaceTime-native agent for stroke and TIA survivors in the ninety days after discharge. The care team prescribes it as part of a remote monitoring plan: a daily one-minute check-in against the patient's own baseline, to catch early signs of recurrence."},
+    {"id": "n04_smile", "text": "Each check-in runs the FAST checks. First, a smile. Face landmarks measure how far each corner of the mouth lifts."},
+    {"id": "n05_arms", "text": "Then both arms up for ten seconds. Each wrist is measured against the shoulder line, so camera shake doesn't register as drift."},
+    {"id": "n06_speech", "text": "Then a sentence to repeat. Onset scores word error rate, speaking rate and the longest pause. Every instruction is also captioned on the agent's video, so the check works with the sound off."},
+    {"id": "n07_usual", "text": "This is the monitoring dashboard. The first check-in records the patient's baseline, and every later metric is shown against it. On a usual morning, the result is: no change detected."},
+    {"id": "n08_change", "text": "Now a change: a one-sided smile, one arm drifting down, and a pause in the middle of the sentence."},
+    {"id": "n09_red", "text": "Each metric crosses its threshold. Onset doesn't simply hang up and dial 911. It adds the caregiver to the live call and strongly recommends calling 911 now."},
+    {"id": "n10_caregiver", "text": "The caregiver also receives an iMessage summarizing what changed against the baseline."},
+    {"id": "n11_unclear", "text": "If the face or arms are out of frame, Onset says so, asks the person to reposition, and repeats the step. Only a persistent failure is treated as unclear, and unclear escalates like a change."},
+    {"id": "n12_how", "text": "FaceTime reaches the agent through Chert and LiveKit. MediaPipe measures the face and arms on the CPU, ElevenLabs Scribe transcribes the sentence, and deterministic rules compare each metric with the baseline."},
+    {"id": "n13_safety", "text": "The thresholds favor sensitivity over specificity on purpose: a false positive costs a phone call. Every check-in's recordings and metrics are stored and analyzed longitudinally against prior sessions, so the care team sees the patient's trajectory across the ninety days."},
+    {"id": "n14_limits", "text": "Onset is a research prototype, not a medical device. The thresholds are provisional, and the next step is a clinician-led validation study. Built with ElevenLabs, LiveKit and Chert."}
   ]
 }

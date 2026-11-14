@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Onset Pitch</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='116' fill='%230A1322'/%3E%3Cpath d='M390.13 193.45A148 148 0 1 1 243.10 108.56' fill='none' stroke='%2367E0D2' stroke-width='54' stroke-linecap='round'/%3E%3Ccircle cx='330' cy='127.83' r='30.24' fill='%23FF6B57'/%3E%3C/svg%3E">
 <meta name="description" content="Onset: a one-minute post-discharge stroke check-in you FaceTime. Research prototype, not a medical device.">
 <!--LOCAL-FONTS-->
 <style>
@@ -54,7 +55,7 @@ body.no-gl #gl{display:none}
 #chrome{position:absolute;inset:0;pointer-events:none;z-index:20}
 .brand{position:absolute;left:72px;top:52px;display:flex;align-items:center;gap:18px;font-family:var(--f-mono);font-size:20px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
 .brand b{font-family:var(--f-display);font-weight:700;letter-spacing:-.01em;text-transform:none;font-size:30px;color:var(--text)}
-.brand .dot{width:10px;height:10px;border-radius:50%;background:var(--glow);box-shadow:0 0 14px var(--glow)}
+.brand .logo{width:38px;height:38px;flex:none}
 .brand .sec{transition:opacity .4s}
 .disclaim{position:absolute;right:72px;top:56px;font-family:var(--f-mono);font-size:18px;letter-spacing:.08em;color:var(--dim)}
 .progress{position:absolute;left:72px;right:72px;bottom:44px;display:flex;gap:6px;align-items:center}
@@ -130,10 +131,12 @@ body.reduced .slide.out{animation:none;display:none}
 #s-cover .foot .pill.no::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--alert)}
 
 /* ---------- problem */
-#s-problem .big{font-family:var(--f-display);font-size:300px;font-weight:700;letter-spacing:-.06em;line-height:.82;margin-top:60px;font-variation-settings:'opsz' 96}
+#s-problem .big{font-family:var(--f-display);font-size:220px;font-weight:700;letter-spacing:-.06em;line-height:.82;margin-top:30px;font-variation-settings:'opsz' 96}
 #s-problem .big small{display:block;font-size:56px;letter-spacing:-.02em;font-weight:600;color:var(--muted);margin-bottom:20px}
 #s-problem .stat-line{font-size:40px;line-height:1.3;max-width:760px;margin-top:30px}
-#s-problem .src{position:absolute;left:140px;bottom:120px}
+#s-problem .stat-line.second{font-size:32px;color:var(--muted);margin-top:16px}
+#s-problem .stat-line.second b{color:var(--text)}
+#s-problem .src{position:absolute;left:140px;bottom:96px}
 
 /* ---------- insight (FAST) */
 #s-insight .fast-row{position:absolute;left:140px;right:140px;bottom:118px;display:grid;grid-template-columns:repeat(4,1fr);gap:22px}
@@ -338,13 +341,13 @@ body.presenter #presenter{display:grid;position:fixed;inset:0;grid-template-colu
   <section class="slide scrim-l" id="s-cover" data-sec="Onset" data-title="Onset">
     <p class="eyebrow" data-r>Post-discharge check-in · research prototype</p>
     <h1 class="h-hero" aria-label="Onset"><span class="split">Onset</span></h1>
-    <p class="lede" data-r>A one-minute stroke check-in you <em>FaceTime</em>. It runs the FAST checks and compares you with yourself.</p>
+    <p class="lede" data-r>A one-minute check-in you <em>FaceTime</em>, prescribed for the 90 days after a stroke or TIA. It runs the FAST checks against the patient's own baseline.</p>
     <div class="foot" data-r>
       <span class="pill">Smile · arms · speech</span>
-      <span class="pill">Fixed rules, no LLM in the decision</span>
+      <span class="pill">90-day remote monitoring</span>
       <span class="pill no">Not a medical device</span>
     </div>
-    <aside class="notes">After a stroke or a mini-stroke, people go home, and their family becomes the early warning system. Nearly one in four strokes in the US happen to someone who has already had one. Onset is a one-minute check-in you FaceTime. It runs the checks of FAST, the public stroke-recognition checklist, and compares you with yourself.
+    <aside class="notes">The weeks after hospital discharge are a high-risk window for another stroke: nearly one in four US strokes are recurrent. Onset is a FaceTime-native agent for stroke and TIA survivors in the 90 days after discharge, prescribed by the discharging care team as a daily one-minute check-in. It runs the checks of FAST, the public stroke-recognition checklist, and compares you with yourself.
 
 (Hook, 20 s. Then go straight to the phone for call 1. If the projector fails, say the hook anyway.)</aside>
   </section>
@@ -352,10 +355,11 @@ body.presenter #presenter{display:grid;position:fixed;inset:0;grid-template-colu
   <!-- 2 -->
   <section class="slide scrim-l" id="s-problem" data-sec="Problem" data-title="The first 90 days home">
     <p class="eyebrow" data-r>The first 90 days home</p>
-    <h2 class="h2" data-r>First 90 days home: the family does the watching.</h2>
+    <h2 class="h2" data-r>After discharge, recurrence risk is front-loaded.</h2>
     <div class="big" data-r><small>Nearly</small>1 in 4</div>
-    <p class="stat-line" data-r>US strokes are in people who had one before.</p>
-    <p class="src" data-r>Source: CDC, Stroke Facts</p>
+    <p class="stat-line" data-r>US strokes are recurrent.</p>
+    <p class="stat-line second" data-r><b>10–15%</b> of people have a major stroke within 3 months of a TIA.</p>
+    <p class="src" data-r>Sources: CDC, Stroke Facts; CDC, About Transient Ischemic Attack</p>
     <div class="tag below" data-at="home.ring"><div class="lbl">90 days</div></div>
     <aside class="notes">After a stroke or a TIA, people go home and the checking falls to them and their family. The CDC's stroke facts page says about 185,000 US strokes a year, nearly one in four, are in people who have had a previous stroke. Our user is the survivor in those first 90 days home. Our buyer is the caregiver first, and later hospital discharge programmes.
 
@@ -503,10 +507,10 @@ Simplified rules from docs/thresholds.md: asymmetry +0.10, arm drift difference 
     <div class="tag node" data-at="pipe.base"><div><b>Baseline</b><span>own well days</span></div></div>
     <div class="tag node" data-at="pipe.rules"><div><b>Fixed rules</b><span>today vs baseline</span></div></div>
     <div class="tag node" data-at="pipe.nochange"><div><b>No change detected</b><span>"if unwell, call 911"</span></div></div>
-    <div class="tag node alert" data-at="pipe.e911"><div><b>Call 911 now</b><span>caption + voice</span></div></div>
-    <div class="tag node alert" data-at="pipe.text"><div><b>Caregiver text</b><span>iMessage via Chert</span></div></div>
-    <div class="tag" data-at="pipe.nollm"><div style="color:var(--glow);letter-spacing:.14em;text-transform:uppercase;font-size:18px">No LLM in the decision path</div></div>
-    <p class="caption" data-r><b>FaceTime → Chert → LiveKit → agent.</b> MediaPipe and Scribe measure. Fixed rules decide. No LLM in the decision path.</p>
+    <div class="tag node alert" data-at="pipe.e911"><div><b>Caregiver joins call</b><span>911 strongly advised</span></div></div>
+    <div class="tag node alert" data-at="pipe.text"><div><b>Caregiver iMessage</b><span>summary via Chert</span></div></div>
+    <div class="tag node" data-at="pipe.llm"><div><b>LLM</b><span>language model</span></div></div>
+    <p class="caption" data-r><b>FaceTime → Chert → LiveKit → agent.</b> MediaPipe and Scribe measure. Deterministic rules compare each metric with the baseline.</p>
     <aside class="notes">Chert gives the agent a real Apple FaceTime line; a Mac on Chert's side bridges FaceTime into a LiveKit Cloud room. The agent is Python on livekit-agents. Smile: MediaPipe Face Landmarker, how far each mouth corner lifts, as an asymmetry index. Arms: MediaPipe Pose, wrist drift over 10 seconds measured against the shoulders, so phone wobble cancels. Speech: ElevenLabs Scribe transcribes the repeated sentence; we compute word error rate, speaking rate and the longest pause. All of this runs on CPU; face landmarks take about 9 ms a frame and pose about 16 ms on our laptop. The rules in onset/decide.py compare today with the person's baseline. The voice is ElevenLabs.</aside>
   </section>
 
@@ -526,7 +530,6 @@ Simplified rules from docs/thresholds.md: asymmetry +0.10, arm drift difference 
       <div class="formula" data-r>asymmetry = 1 − <i>weaker lift</i> ÷ <i>stronger lift</i></div>
       <div class="rule" data-r><span class="tick"></span>Change when today − baseline ≥ 0.10</div>
     </div>
-    <span class="illus" style="right:140px;bottom:118px" data-r>Illustration · synthetic face</span>
     <aside class="notes">"Face landmarks, on the laptop's CPU. It measures how far each corner of the mouth lifts." 0 means both corners lift equally, 1 means one side did not move. MediaPipe pulls the corners together, so a fully one-sided smile reads about 0.6 to 0.9, not 1.0. The threshold is twice the meter's noise floor. Values on this slide are an illustration, not a person.</aside>
   </section>
 
@@ -550,7 +553,6 @@ Simplified rules from docs/thresholds.md: asymmetry +0.10, arm drift difference 
       <div class="formula" data-r>difference = | <i>left drift</i> − <i>right drift</i> |</div>
       <div class="rule" data-r><span class="tick"></span>Change at baseline + 0.06 · a hold under 8 s is unclear</div>
     </div>
-    <span class="illus" style="right:140px;bottom:118px" data-r>Illustration · synthetic figure</span>
     <aside class="notes">"Ten seconds. It tracks the wrists against the shoulders, so a wobbly phone doesn't count as drift." Comparing the difference between sides cancels the drift both arms share from ordinary tiredness; a weak arm drifts on its own. 0.06 shoulder widths is twice the noise floor, about 2 to 2.5 cm for a typical adult. Values are an illustration.</aside>
   </section>
 
@@ -588,17 +590,17 @@ Simplified rules from docs/thresholds.md: asymmetry +0.10, arm drift difference 
   <!-- 12 -->
   <section class="slide scrim-l" id="s-safety" data-sec="Safety" data-title="Safety by design">
     <p class="eyebrow" data-r>Safety by design</p>
-    <h2 class="h2" data-r>Any change or anything unclear: call 911 now</h2>
+    <h2 class="h2" data-r>Any change: caregiver joins, 911 advised</h2>
     <div class="list">
-      <div class="a" data-r><span><b>Unclear counts as a change.</b> <span>Bad light, arms out of frame, no baseline: call 911 now.</span></span></div>
-      <div data-r><span><b>Never says "you're fine."</b> <span>Never diagnoses.</span></span></div>
-      <div data-r><span><b>Rules you can read.</b> <span>Same numbers, same answer, with reasons.</span></span></div>
-      <div class="a" data-r><span><b>Leans toward false alarms.</b> <span>A false alarm costs a phone call.</span></span></div>
+      <div data-r><span><b>Reposition, then retry.</b> <span>Face or arms out of frame: Onset says so and re-runs the step.</span></span></div>
+      <div class="a" data-r><span><b>Persistent failure escalates.</b> <span>Unclear after a retry is handled like a change.</span></span></div>
+      <div class="a" data-r><span><b>Sensitivity over specificity.</b> <span>A false positive costs a phone call.</span></span></div>
+      <div data-r><span><b>Longitudinal record.</b> <span>Every session's recordings and metrics, trended over 90 days for the care team.</span></span></div>
     </div>
     <div class="tag above" data-at="safe.nc"><div class="lbl">No change detected</div></div>
     <div class="tag above" data-at="safe.ch"><div class="lbl" style="border-color:rgba(255,91,69,.5);color:#FFD6CF">Change</div></div>
     <div class="tag below" data-at="safe.un"><div class="lbl" style="border-color:rgba(255,91,69,.5);color:#FFD6CF">Unclear</div></div>
-    <div class="tag below" data-at="safe.e911"><div class="lbl" style="border-color:var(--alert);color:#fff;font-size:24px;flex-direction:column;gap:2px">Call 911 now<span style="color:#FF9C8E;font-size:18px">+ caregiver text</span></div></div>
+    <div class="tag below" data-at="safe.e911"><div class="lbl" style="border-color:var(--alert);color:#fff;font-size:24px;flex-direction:column;gap:2px">Caregiver joins · call 911<span style="color:#FF9C8E;font-size:18px">+ iMessage summary</span></div></div>
     <div class="tag below" data-at="safe.ncout"><div class="lbl">"If you feel unwell, call 911."</div></div>
     <aside class="notes">"Three choices. The decision is fixed rules you can read, with no LLM in the decision path. Anything unclear counts as a change, so it leans toward false alarms. And it never tells anyone they're fine, and never diagnoses."
 
@@ -609,7 +611,7 @@ Three outcomes: no change detected, change, unclear. Unclear is treated exactly 
   <section class="slide scrim-l" id="s-limits" data-sec="Limits" data-title="What it can't do yet">
     <p class="eyebrow" data-r>Limits and roadmap</p>
     <h2 class="h2" data-r>What it can't do yet</h2>
-    <p class="lede" data-r>Thresholds are provisional: synthetic data, one person. No accuracy numbers until a clinical study measures them.</p>
+    <p class="lede" data-r>Thresholds are provisional. No accuracy numbers until a clinician-led study measures them.</p>
     <div class="tag right" data-at="road.0"><div class="lbl" style="color:var(--text)">Now · research prototype</div></div>
     <div class="tag right" data-at="road.1"><div class="lbl">Clinician-led validation</div></div>
     <div class="tag right" data-at="road.2"><div class="lbl">Scheduled check-in calls</div></div>
@@ -631,7 +633,7 @@ Be direct. The thresholds were set from synthetic faces, drawn figures, generate
   </section>
 
   <div id="chrome">
-    <div class="brand"><span class="dot"></span><b>Onset</b><span class="sec" id="sec-label"></span></div>
+    <div class="brand"><svg class="logo" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lg-deck" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3FB6E8"/><stop offset="1" stop-color="#67E0D2"/></linearGradient></defs><path d="M415.51 181.62A176 176 0 1 1 240.66 80.67" fill="none" stroke="url(#lg-deck)" stroke-width="64" stroke-linecap="round"/><circle cx="344" cy="103.58" r="35.84" fill="#FF6B57"/></svg><b>Onset</b><span class="sec" id="sec-label"></span></div>
     <div class="disclaim">Research prototype · not a medical device</div>
     <div class="progress" id="progress"></div>
     <div class="count" id="count"></div>
@@ -1182,14 +1184,14 @@ function makeWorld(THREE, canvas) {
   ST('pipe', 400, -.5, 0, g => {
     const nodes = {
       phone: [-11.2, 0], chert: [-7.6, 0], livekit: [-4.0, 0], agent: [-.4, 0], dash: [-.4, -3.0],
-      face: [3.5, 2.3], arms: [3.5, 0], speech: [3.5, -2.3], base: [7.1, -2.8], rules: [7.1, 0],
+      face: [3.5, 2.3], arms: [3.5, 0], speech: [3.5, -2.3], base: [7.1, -2.8], rules: [7.1, 0], llm: [-9.4, -3.0],
       nochange: [10.9, 2.3], e911: [10.9, 0], text: [10.9, -2.3],
     };
     const NW = 3.3, NH = 1.3;
     const rr = (w, h, r) => { const s = new THREE.Shape(); s.moveTo(-w / 2 + r, -h / 2); s.lineTo(w / 2 - r, -h / 2); s.quadraticCurveTo(w / 2, -h / 2, w / 2, -h / 2 + r); s.lineTo(w / 2, h / 2 - r); s.quadraticCurveTo(w / 2, h / 2, w / 2 - r, h / 2); s.lineTo(-w / 2 + r, h / 2); s.quadraticCurveTo(-w / 2, h / 2, -w / 2, h / 2 - r); s.lineTo(-w / 2, -h / 2 + r); s.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + r, -h / 2); return s; };
     const nodeShape = rr(NW, NH, .22);
     const fillGeo = new THREE.ShapeGeometry(nodeShape, 8), edgePts = nodeShape.getPoints(12).map(p => V(p.x, p.y, .01));
-    const order = ['phone', 'chert', 'livekit', 'agent', 'dash', 'face', 'arms', 'speech', 'base', 'rules', 'nochange', 'e911', 'text'];
+    const order = ['phone', 'chert', 'livekit', 'agent', 'dash', 'face', 'arms', 'speech', 'base', 'rules', 'nochange', 'e911', 'text', 'llm'];
     const N3 = {};
     const diagram = new THREE.Group(); g.add(diagram); diagram.rotation.set(-.12, .1, 0);
     order.forEach((k, idx) => {
@@ -1199,13 +1201,6 @@ function makeWorld(THREE, canvas) {
       const n = new THREE.Group(); n.add(m, e); n.position.set(x, y, 0); diagram.add(n); N3[k] = { n, m, e, idx };
       anchors['pipe.' + k] = () => n.getWorldPosition(V());
     });
-    // "no LLM" region
-    const reg = rr(7.5, 7.6, .4);
-    const regLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(reg.getPoints(16).concat([reg.getPoints(16)[0]]).map(p => V(p.x + 5.3, p.y - .15, -.05))), new THREE.LineDashedMaterial({ color: COL.glow, dashSize: .25, gapSize: .18, transparent: true, opacity: .55 }));
-    regLine.computeLineDistances(); diagram.add(regLine);
-    const regFill = new THREE.Mesh(new THREE.ShapeGeometry(reg, 8), new THREE.MeshBasicMaterial({ color: 0x0f2a2c, transparent: true, opacity: .28, depthWrite: false }));
-    regFill.position.set(5.3, -.15, -.08); diagram.add(regFill);
-    anchors['pipe.nollm'] = () => diagram.localToWorld(V(5.3, 3.95, 0));
     const E = (a, b, kind = 'm') => ({ a, b, kind });
     const edges = [E('phone', 'chert', 'media'), E('chert', 'livekit', 'media'), E('livekit', 'agent', 'media'), E('agent', 'face'), E('agent', 'arms'), E('agent', 'speech'), E('agent', 'dash', 'dash'), E('face', 'rules'), E('arms', 'rules'), E('speech', 'rules'), E('base', 'rules'), E('rules', 'nochange', 'calm'), E('rules', 'e911', 'alert'), E('rules', 'text', 'alert')];
     const curves = edges.map(ed => {
@@ -1228,7 +1223,6 @@ function makeWorld(THREE, canvas) {
       if (active && born == null) born = t; if (!active) born = null;
       const T = reduced ? 99 : (born == null ? 99 : t - born);
       order.forEach(k => { const o = N3[k]; const s = smooth((T - .3 - o.idx * .14) / .5); o.n.scale.setScalar(.85 + .15 * s); o.m.material.opacity = .9 * s; o.e.material.opacity = (k === 'e911' || k === 'text' || k === 'rules' ? .9 : .55) * s; });
-      regLine.material.opacity = .55 * smooth((T - 1.6) / .8); regFill.material.opacity = .28 * smooth((T - 1.6) / .8);
       let i = 0;
       curves.forEach((cv, ci) => {
         const ia = N3[cv.ed.a].idx, ib = N3[cv.ed.b].idx; const vis = smooth((T - .5 - Math.max(ia, ib) * .14) / .6);
@@ -1506,8 +1500,8 @@ const LINES = {
   sentence_lead: `Get ready to say: “${SENT}”`,
   sentence: `Say it now: “${SENT}”`,
   deciding: 'Thank you. One moment.',
-  escalate: 'Please call 911 now. Your caregiver is being texted.',
-  unclear: 'I could not check clearly. Please call 911 now.',
+  escalate: 'Change noticed. Adding your caregiver to this call. Please call 911 now.',
+  unclear: 'I could not check clearly. Adding your caregiver. Please call 911 now.',
   no_change: 'No change from your usual check-in. If you feel unwell, call 911.',
   baseline_saved: 'Your usual check-in is recorded. If you feel unwell, call 911.',
   baseline_failed: "Let's try again later. If you feel unwell, call 911.",

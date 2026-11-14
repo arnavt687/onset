@@ -56,25 +56,16 @@ if (kind === 'title') {
   B.className = 'solid';
   B.innerHTML = `<div class="center"><div>
     <h1><span class="dot"></span>Onset</h1>
-    <div class="sub">a 60-second stroke check-in you <b>FaceTime</b></div>
+    <div class="sub">a one-minute stroke check-in you <b>FaceTime</b></div>
     <div class="fine mono">Research prototype · not a medical device</div></div></div>`;
 } else if (kind === 'end') {
   B.className = 'solid';
   B.innerHTML = `<div class="center"><div>
     <h1 style="font-size:170px"><span class="dot"></span>Onset</h1>
-    <div class="sub">a 60-second stroke check-in you <b>FaceTime</b></div>
+    <div class="sub">a one-minute stroke check-in you <b>FaceTime</b></div>
     <div class="link">github.com/arnavt687/onset</div>
     <div class="warn">Research prototype · not a medical device</div>
     <div class="fine">Built with ElevenLabs, LiveKit and Chert</div></div></div>`;
-} else if (kind === 'disclose') {
-  B.className = 'solid';
-  B.innerHTML = `
-    <div class="phone" style="left:110px;top:250px"><img src="${esc(q.get('img'))}" width="1088" height="612"></div>
-    <div class="side" style="left:1390px">
-      <div class="k mono">About this video</div>
-      <h2 style="color:var(--amber)">Synthetic demo run</h2>
-      <p>Onset's real software (its captions, dashboard, decision rules and caregiver text) fed simulated check-ins.</p>
-      <p style="margin-top:22px">No real person or patient appears. Nothing was sent.</p></div>`;
 } else if (kind === 'phone') {
   B.className = 'solid';
   B.innerHTML = `
@@ -83,7 +74,7 @@ if (kind === 'title') {
       <div class="k mono">${esc(q.get('k') || 'What the caller sees')}</div>
       <h2>${esc(q.get('t'))}</h2>
       <p>${esc(q.get('p') || "Captions on the agent's FaceTime video, rendered by Onset's overlay code.")}</p>
-      <div><span class="chip">Synthetic · stand-in picture</span></div></div>`;
+      </div>`;
 } else if (kind === 'lower') {
   B.className = 'clear';
   B.innerHTML = `<div class="lower ${q.get('alert') ? 'alert' : ''}"><div class="bar"></div><div class="box">
@@ -91,9 +82,6 @@ if (kind === 'title') {
 } else if (kind === 'gh') {
   B.className = 'clear';
   B.innerHTML = `<div style="position:absolute;left:0;right:0;top:905px;text-align:center"><span class="mono" style="font-size:34px;letter-spacing:.06em;text-transform:none;color:var(--teal)">github.com/arnavt687/onset</span></div>`;
-} else if (kind === 'tag') {
-  B.className = 'clear';
-  B.innerHTML = `<div class="tag" style="${q.get('pos') === 'tl' ? 'left:36px;right:auto' : ''}"><i></i>SYNTHETIC DEMO RUN<small>${esc(q.get('s') || 'simulated input · not a real person')}</small></div>`;
 }
 </script>
 </body>

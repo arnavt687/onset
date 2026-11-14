@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Onset thumbnail</title>
+<!-- 3:2 Devpost thumbnail (1500x1000), screenshotted by shoot.cjs:
+     node tools/video/shoot.cjs out.png "file:///.../thumbnail.html?img=<caption png url>" --w 1500 --h 1000 -->
+<style>
+  @font-face{font-family:'Inter';font-weight:400 700;src:url(../../web/pitch/vendor/fonts/Inter.woff2) format('woff2')}
+  @font-face{font-family:'JetBrains Mono';font-weight:400 600;src:url(../../web/pitch/vendor/fonts/JetBrainsMono.woff2) format('woff2')}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1500px;height:1000px;overflow:hidden;font-family:'Inter','Segoe UI',sans-serif;color:#EEF4F8;
+    background:radial-gradient(1100px 800px at 78% 45%,#10233a 0%,#070C14 68%)}
+  .mark{position:absolute;left:90px;top:120px;display:flex;align-items:center;gap:34px}
+  .mark svg{width:170px;height:170px}
+  .mark b{font-size:168px;font-weight:700;letter-spacing:-.035em;line-height:1}
+  h2{position:absolute;left:96px;top:360px;width:640px;font-size:52px;font-weight:700;line-height:1.14;letter-spacing:-.02em}
+  h2 em{font-style:normal;color:#67E0D2}
+  .chips{position:absolute;left:96px;top:640px;display:flex;flex-direction:column;gap:16px}
+  .chip{font-family:'JetBrains Mono',monospace;font-size:24px;letter-spacing:.04em;color:#cfe0ea;padding:12px 20px;border:2px solid rgba(103,224,210,.35);border-radius:12px;width:fit-content}
+  .chip.a{border-color:rgba(255,107,87,.6);color:#FFD6CF}
+  .fine{position:absolute;left:96px;bottom:60px;font-family:'JetBrains Mono',monospace;font-size:20px;letter-spacing:.14em;text-transform:uppercase;color:#7f93a6}
+  .phone{position:absolute;right:70px;top:250px;width:620px;padding:22px 40px;border-radius:44px;background:#0b0f16;border:3px solid #2a3444;
+    box-shadow:0 40px 120px rgba(0,0,0,.6),inset 0 0 0 7px #121a26;transform:perspective(1600px) rotateY(-14deg) rotateZ(1deg)}
+  .phone img{display:block;width:100%;border-radius:14px}
+</style>
+</head>
+<body>
+<div class="mark"><svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3FB6E8"/><stop offset="1" stop-color="#67E0D2"/></linearGradient></defs><path d="M415.51 181.62A176 176 0 1 1 240.66 80.67" fill="none" stroke="url(#g)" stroke-width="64" stroke-linecap="round"/><circle cx="344" cy="103.58" r="35.84" fill="#FF6B57"/></svg><b>Onset</b></div>
+<h2>A one-minute check-in you <em>FaceTime</em>, for the 90 days after a stroke or TIA.</h2>
+<div class="chips"><span class="chip">Smile · arms · speech vs. your own baseline</span><span class="chip a">Any change: caregiver joins the call</span></div>
+<div class="fine">Research prototype · not a medical device</div>
+<div class="phone"><img id="img" alt=""></div>
+<script>document.getElementById('img').src = new URLSearchParams(location.search).get('img') || '';</script>
+</body>
+</html>

@@ -23,11 +23,11 @@ const VIDEO_CARDS = process.env.ONSET_VIDEO_CARDS || 'http://127.0.0.1:8772/vide
 
 function opts() {
   const o = {
-    work: path.join(process.env.LOCALAPPDATA, 'Temp', 'onset-video', 'work'),
-    vo: '\\\\wsl.localhost\\Ubuntu\\home\\arnav\\onset\\runs\\video\\vo',
-    captions: '\\\\wsl.localhost\\Ubuntu\\home\\arnav\\onset\\runs\\video\\captions',
-    out: '\\\\wsl.localhost\\Ubuntu\\home\\arnav\\onset\\runs\\video\\onset-demo-v1.mp4',
-    copy: path.join(process.env.USERPROFILE, 'Videos', 'onset-demo-v1.mp4'),
+    work: path.join(process.env.LOCALAPPDATA, 'Temp', 'onset-video', 'work-v2'),
+    vo: '\\\\wsl.localhost\\Ubuntu\\home\\arnav\\onset\\runs\\video\\vo-v2',
+    captions: '\\\\wsl.localhost\\Ubuntu\\home\\arnav\\onset\\runs\\video\\captions-v2',
+    out: '\\\\wsl.localhost\\Ubuntu\\home\\arnav\\onset\\runs\\video\\onset-demo-v2.mp4',
+    copy: path.join(process.env.USERPROFILE, 'Videos', 'onset-demo-v2.mp4'),
   };
   const v = process.argv.slice(2);
   for (let i = 0; i < v.length; i++) {
@@ -236,9 +236,7 @@ function shotFilter(s, dur, frames, inputs) {
   const cardJobs = [];
   const cap = n => fileUrl(path.join(o.captions, `${n}.png`));
   const C = n => path.join(B, 'cards', n);
-  cardJobs.push({ out: C('gh.png'), query: 'kind=gh', transparent: true },
-    { out: C('disclose.png'), query: `kind=disclose&img=${enc(cap('greet'))}` },
-    { out: C('tag.png'), query: 'kind=tag', transparent: true }, { out: C('tag-tl.png'), query: 'kind=tag&pos=tl', transparent: true });
+  cardJobs.push({ out: C('gh.png'), query: 'kind=gh', transparent: true });
   shots.forEach((s, i) => {
     if (s.phone) cardJobs.push({ out: C(`phone-${i}.png`), query: `kind=phone&img=${enc(cap(s.phone))}&k=${enc(s.k || '')}&t=${enc(s.t || '')}&p=${enc(s.p || '')}` });
     if (s.lower) cardJobs.push({ out: C(`lower-${i}.png`), transparent: true, lower: { k: s.lower.k, h: s.lower.t, p: s.lower.p, alert: s.lower.alert, pos: s.lower.pos } });
@@ -260,7 +258,6 @@ function shotFilter(s, dur, frames, inputs) {
     const overlays = [];
     if (s.lower) { args.push('-loop', '1', '-framerate', String(FPS), '-i', C(`lower-${i}.png`)); overlays.push({ fadeIn: 0.3, until: Math.min(s.dur, 4.4) }); }
     if (s.card === 'end') { args.push('-loop', '1', '-framerate', String(FPS), '-i', C('gh.png')); overlays.push({ fadeIn: 1.4 }); }
-    if (s.synth) { args.push('-loop', '1', '-framerate', String(FPS), '-i', C(s.synth === 'tl' ? 'tag-tl.png' : 'tag.png')); overlays.push({ fadeIn: 0 }); }
     const fc = shotFilter(s, s.dur, frames, overlays);
     const out = path.join(B, 'shots', `shot-${String(i).padStart(2, '0')}.mp4`);
     run([...args, '-filter_complex', fc, '-map', '[v]', '-frames:v', String(frames), '-r', String(FPS),
@@ -304,7 +301,7 @@ function shotFilter(s, dur, frames, inputs) {
 
   // Shot list for the report.
   const mmss = x => `${Math.floor(x / 60)}:${(x % 60).toFixed(1).padStart(4, '0')}`;
-  const report = shots.map((s, i) => `${String(i).padStart(2)}  ${mmss(s.start)}-${mmss(s.start + s.dur)}  ${s.label}${s.lower ? `  [${s.lower.k}: ${s.lower.t}]` : ''}${s.synth ? '  {synthetic tag}' : ''}`);
+  const report = shots.map((s, i) => `${String(i).padStart(2)}  ${mmss(s.start)}-${mmss(s.start + s.dur)}  ${s.label}${s.lower ? `  [${s.lower.k}: ${s.lower.t}]` : ''}`);
   const vrep = placed.map(p => `${mmss(p.at)}-${mmss(p.at + p.vo.dur)}  ${p.vo.id}`);
   fs.writeFileSync(base + '-shots.txt', ['SHOTS', ...report, '', 'VOICE-OVER', ...vrep, '', `total ${mmss(total)}`].join('\n') + '\n');
   console.log(`wrote ${o.out} (${total.toFixed(1)} s)`);
