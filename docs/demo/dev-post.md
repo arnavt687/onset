@@ -1,6 +1,6 @@
 ---
 title: I built a stroke check-in you FaceTime, and the hardest bug wasn't mine
-published: false
+published: true
 tags: hackathon, healthcare, python, ai
 cover_image: https://raw.githubusercontent.com/arnavt687/onset/main/docs/demo/screenshots/polish/thumbnail-3x2-v2.jpg
 ---
