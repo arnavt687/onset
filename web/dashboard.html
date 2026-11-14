@@ -113,7 +113,8 @@ main { display: grid; grid-template-columns: 1.12fr 1fr 0.6fr; grid-template-row
   padding: 0.1cqw 0.9cqw; border-radius: 0.8cqw; background: rgba(4,8,14,.78); border: 0.1cqw solid rgba(103,224,210,.5); color: var(--text); font-variant-numeric: tabular-nums; box-shadow: 0 0 1.2cqw rgba(103,224,210,.25); }
 .caption { margin-top: 0.7cqw; font-size: 2.05cqw; line-height: 1.18; font-weight: 700; letter-spacing: -0.01em; min-height: 2.6cqw; }
 .caption.enter { animation: rise .7s var(--ease) both; }
-@keyframes rise { from { opacity: 0; transform: translateY(0.8cqw); filter: blur(0.4cqw); } to { opacity: 1; transform: none; filter: none; } }
+/* Entrances start readable: if a backgrounded tab pauses animations, safety text still shows. */
+@keyframes rise { from { opacity: 0.45; transform: translateY(0.8cqw); } to { opacity: 1; transform: none; } }
 .said { margin-top: 0.3cqw; font-size: 1cqw; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .said b { color: var(--text); font-weight: 500; }
 
@@ -173,7 +174,7 @@ main { display: grid; grid-template-columns: 1.12fr 1fr 0.6fr; grid-template-row
 .outcome small { display: block; font-family: var(--f-text); font-size: 1cqw; font-weight: 500; letter-spacing: 0; margin-top: 0.4cqw; opacity: 0.92; }
 .outcome.reveal { animation: reveal .9s var(--ease) both; }
 .outcome.reveal::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%); transform: translateX(-100%); animation: sweep 1.3s .25s ease-out both; }
-@keyframes reveal { from { opacity: 0; transform: scale(.94); filter: blur(0.5cqw); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes reveal { from { opacity: 0.5; transform: scale(.95); } to { opacity: 1; transform: none; } }
 @keyframes sweep { to { transform: translateX(100%); } }
 .reasons { margin: 0.6cqw 0 0; padding-left: 1.4cqw; font-size: 1.15cqw; line-height: 1.3; overflow: hidden; columns: 2; column-gap: 2cqw; }
 .reasons.one { columns: 1; }
@@ -201,7 +202,7 @@ main { display: grid; grid-template-columns: 1.12fr 1fr 0.6fr; grid-template-row
 .phone .msgs { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; padding-top: 0.4cqw; min-height: 0; overflow: hidden; }
 .bubble { align-self: flex-end; max-width: 96%; background: var(--imsg); color: #fff; border-radius: 1.1cqw 1.1cqw 0.3cqw 1.1cqw; padding: 0.6cqw 0.85cqw; font-size: 1.05cqw; line-height: 1.3; white-space: pre-wrap;
   animation: bubble .8s var(--ease) both; transform-origin: 100% 100%; }
-@keyframes bubble { from { opacity: 0; transform: translateY(1.5cqw) scale(.92); } to { opacity: 1; transform: none; } }
+@keyframes bubble { from { opacity: 0.45; transform: translateY(1.5cqw) scale(.94); } to { opacity: 1; transform: none; } }
 .bubble.dry { background: #2c2c2e; border: 0.1cqw dashed #8e8e93; }
 .bubble.failed { background: #2c2c2e; }
 .receipt { align-self: flex-end; font-size: 0.78cqw; color: #8e8e93; margin-top: 0.25cqw; animation: rise .5s .5s both; }
