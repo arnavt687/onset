@@ -23,8 +23,14 @@ Every event has "t" (seconds since the run started), "type", and the fields belo
     result        check ("face"|"arms"|"speech"), quality, data (the FaceResult/ArmResult/SpeechResult as a dict)
     decision      outcome ("escalate"|"unclear"|"no_change_detected"), reasons (list[str]),
                   baseline_used (bool)
-    caregiver     text, status ("dry_run"|"sent"|"failed"|"skipped"), detail (str)
+    caregiver     text, status ("dry_run"|"sent"|"failed"|"unknown"|"skipped"), detail (str)
+    action        kind ("imessage"|"invite"|"call"), live (bool: false = dry run), status, target
+                  (masked phone, e.g. "+1…02"), detail, plus kind-specific fields (chars, link)
+    caregiver_join status ("invited"|"joined"|"talking"|"left"|"failed"), detail
     run_ended     reason
+
+`caregiver_link.txt` (0600, only on escalation): the caregiver's join link, which holds tokens.
+It is never put in an event; the local dashboard offers it as a demo button.
 
 `runs/` is gitignored: it can hold a person's face and voice.
 """
@@ -120,6 +126,20 @@ class EventSink:
             rel = f"audio/{self._n_audio:03d}.wav"
         return self.live / rel, rel
 
+    def private_file(self, name: str, text: str) -> Path | None:
+        """A small owner-only file in the live run dir (e.g. the caregiver link for the local
+        dashboard's demo button). Never copied into events. Returns its path, or None."""
+        if "/" in name or "\\" in name or name.startswith("."):
+            return None
+        path = self.live / name
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(text)
+            return path
+        except OSError:
+            return None
+
     def close(self, reason: str = "") -> None:
         self.emit("run_ended", reason=reason)
         with self._lock:
@@ -129,6 +149,6 @@ class EventSink:
         try:
             if self.archive.exists():
                 shutil.rmtree(self.archive)
-            shutil.copytree(self.live, self.archive)
+            shutil.copytree(self.live, self.archive, ignore=shutil.ignore_patterns("caregiver_link.txt"))
         except OSError:
             pass

@@ -28,7 +28,9 @@ moving down when it disappeared, an arm that came down early, no smile and arms 
 are findings, never framing problems.
 
 Safety: outcomes come only from onset.decide (rules). UNCLEAR and ESCALATE both tell the
-person to call 911 now and text the caregiver. No line says "you're fine" (see onset/script.py).
+person to call 911 now and bring the caregiver in (a join link plus the summary by iMessage,
+onset/caregiver.py; a dry run unless ONSET_LIVE_ACTIONS=1). No line says "you're fine"
+(see onset/script.py).
 """
 
 from __future__ import annotations
@@ -178,6 +180,9 @@ class CheckFlow:
         baseline_dir: Path | None = None,
         caregiver_phone: str | None = None,
         caregiver_send: bool | None = None,
+        caregiver_name: str | None = None,
+        escalate: Callable[[Decision, str], Awaitable[dict]] | None = None,
+        save_baseline: bool = True,
         recorder=None,  # tools.record.Recorder (whole call), or None
         source: str = "call",
         run_id: str = "",
@@ -198,9 +203,14 @@ class CheckFlow:
         self._send = send_message or _default_send
         self.baseline_dir = baseline_dir
         self.caregiver_phone = caregiver_phone if caregiver_phone is not None else os.environ.get("ONSET_CAREGIVER_PHONE", "")
-        if caregiver_send is None:
-            caregiver_send = os.environ.get("ONSET_CAREGIVER_SEND") == "1"
-        self.caregiver_send = bool(caregiver_send and self.caregiver_phone)
+        self.caregiver_name = caregiver_name if caregiver_name is not None else os.environ.get("ONSET_CAREGIVER_NAME", "")
+        # Whether a real text may be sent is decided by the safety gate (onset.actions:
+        # ONSET_LIVE_ACTIONS=1 plus a caregiver phone). caregiver_send=False forces a dry run.
+        self._force_dry = caregiver_send is False
+        self._escalate_fn = escalate  # agent.py: caregiver link + relay + text; None: text only
+        self.save_baseline = save_baseline  # False for an unidentified caller
+        self.caregiver_status = ""  # "" | invited | joined | talking | left
+        self._cg_frame: tuple[float, np.ndarray] | None = None  # (t, rgb) caregiver camera for PiP
         self.recorder = recorder
         self.source, self.run_id = source, run_id
 
@@ -577,7 +587,7 @@ class CheckFlow:
             self._emit("result", check="speech", quality=self.speech.quality, data=self.speech)
             results = CheckResults(face=self.face, arms=self.arms, speech=self.speech,
                                    started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
-            if self.baseline is None:
+            if self.baseline is None and self.save_baseline:
                 await self._first_run(results)
             else:
                 await self._compare(results)
@@ -614,39 +624,74 @@ class CheckFlow:
     async def _compare(self, results: CheckResults) -> None:
         decision = self._decide.decide(results, self.baseline)
         self.decision = decision
-        self._emit("decision", outcome=decision.outcome, reasons=list(decision.reasons), baseline_used=True)
+        self._emit("decision", outcome=decision.outcome, reasons=list(decision.reasons),
+                   baseline_used=self.baseline is not None)
         if decision.outcome in (Outcome.ESCALATE, Outcome.UNCLEAR):
-            # The 911 line is shown and said first; the text can take ~50 s (retries,
-            # re-reads), so it runs in the background and reports through its own event.
+            # The 911 line ("I am adding your caregiver to this call now") is shown and said
+            # first; inviting the caregiver and the text can take ~50 s (retries, re-reads),
+            # so they run in the background and report through their own events.
             with self._lock:
                 self._close(script.CLOSE_ESCALATE if decision.outcome is Outcome.ESCALATE else script.CLOSE_UNCLEAR)
-            task = asyncio.create_task(self._text_caregiver(decision), name="onset-caregiver")
+            task = asyncio.create_task(self._escalate(decision), name="onset-caregiver")
             self._background.add(task)
             task.add_done_callback(self._background.discard)
         else:
             with self._lock:
                 self._close(script.CLOSE_NO_CHANGE)
 
-    async def _text_caregiver(self, decision: Decision) -> None:
+    async def _escalate(self, decision: Decision) -> None:
+        """Bring the caregiver in (agent.py's hook: link, relay, text) or just text them."""
         try:
             text = self._decide.caregiver_summary(decision, self.patient_name)
         except Exception as e:  # noqa: BLE001
             self._emit("caregiver", text="", status="failed", detail=f"summary failed: {type(e).__name__}")
             self._end_run("complete")
             return
-        phone = self.caregiver_phone or "+15555550100"  # placeholder for a dry run
-        dry = not self.caregiver_send
         try:
-            res = await self._send(phone, text, dry)
-            status = res.get("status", "failed")
-            status = "dry_run" if status == "dry_run" else ("sent" if res.get("accepted") else "failed")
-            detail = res.get("detail") or res.get("error") or ""
+            if self._escalate_fn is not None:
+                res = await self._escalate_fn(decision, text)
+            else:
+                from onset.caregiver import notify_caregiver
+
+                res = await notify_caregiver(sink=self, summary=text, caregiver_phone=self.caregiver_phone,
+                                             caregiver_name=self.caregiver_name, patient_name=self.patient_name,
+                                             send=self._send, force_dry=self._force_dry)
+            status, detail = res.get("status", "failed"), res.get("detail", "")
         except Exception as e:  # noqa: BLE001
+            log.exception("[onset] escalation failed")
             status, detail = "failed", type(e).__name__
-        if dry and not self.caregiver_phone:
-            detail = "dry run: no caregiver phone set (ONSET_CAREGIVER_PHONE)"
         self._emit("caregiver", text=text, status=status, detail=detail)
         self._end_run("complete")
+
+    # A sink-like face for onset.actions.record / notify_caregiver: events go through _emit.
+    def emit(self, type_: str, **fields: Any) -> None:
+        self._emit(type_, **fields)
+
+    # ------------------------------------------------------------------ caregiver presence
+
+    def caregiver_update(self, status: str, detail: str = "") -> None:
+        """The caregiver was invited / joined / started talking / left (from agent.py)."""
+        rank = {"": 0, "failed": 0, "invited": 1, "joined": 2, "talking": 3, "left": 1}
+        with self._lock:
+            if status == self.caregiver_status:
+                return
+            if status == "invited" and rank[self.caregiver_status] >= rank["invited"]:
+                return  # the caregiver was quicker than the invitation's bookkeeping
+            prev, self.caregiver_status = self.caregiver_status, status
+            self._emit("caregiver_join", status=status, detail=detail)
+            if status == "joined" and prev in ("", "invited"):
+                self.caption = script.CAREGIVER_JOINED.caption
+                self._speak(script.CAREGIVER_JOINED.say)
+            elif status == "talking":
+                self.caption = script.CAREGIVER_TALKING.caption
+                self._speak(script.CAREGIVER_TALKING.say)
+            elif status == "left" and self.outcome_line is not None:
+                self.caption = self.outcome_line.caption
+                self._cg_frame = None
+
+    def caregiver_frame(self, rgb: np.ndarray, t: float) -> None:
+        """The caregiver's latest camera frame, drawn picture-in-picture for the caller."""
+        self._cg_frame = (t, rgb)
 
     async def wait_background(self, timeout: float = 90.0) -> None:
         """Wait for background work (the caregiver text). Live calls need not; replays and tests do."""
@@ -708,9 +753,37 @@ class CheckFlow:
         prog = script.PROGRESS.get(state)
         if prog:
             overlay.composite(img, overlay.pill_layer(f"Step {prog[0]} of 3 · {prog[1]}", w, h, other))
+        if self.caregiver_status in ("invited", "joined", "talking"):
+            self._draw_caregiver(img, t, other)
         if self.sink is not None:
             self.sink.frame(img)
         return img
+
+
+    def _draw_caregiver(self, img: np.ndarray, t: float, pill_pos: str) -> None:
+        """Caregiver status pill, and their camera picture-in-picture while it is fresh."""
+        try:
+            label = {"invited": "Calling your caregiver…", "joined": "Caregiver joined",
+                     "talking": "Caregiver on the call"}[self.caregiver_status]
+            overlay.composite(img, overlay.pill_layer(label, self.out_w, self.out_h, pill_pos))
+            cg = self._cg_frame
+            if cg is None or t - cg[0] > 1.5:
+                return
+            import cv2
+
+            h, w = img.shape[:2]
+            pw = max(64, w // 4)
+            src = cg[1]
+            ph = int(round(pw * src.shape[0] / max(1, src.shape[1])))
+            ph = min(ph, h // 2)
+            pip = cv2.resize(np.ascontiguousarray(src[..., :3]), (pw, ph), interpolation=cv2.INTER_AREA)
+            x0, y0 = w - pw - 12, (h - ph) // 2
+            img[y0 - 2:y0 + ph + 2, x0 - 2:x0 + pw + 2, :3] = 255
+            img[y0:y0 + ph, x0:x0 + pw, :3] = pip
+            if img.shape[2] == 4:
+                img[y0 - 2:y0 + ph + 2, x0 - 2:x0 + pw + 2, 3] = 255
+        except Exception:  # noqa: BLE001 - the picture is optional
+            log.debug("caregiver draw failed", exc_info=True)
 
 
 def _small(d: dict) -> dict:

@@ -12,7 +12,8 @@ runs/live/ that a live call writes, so the dashboard shows the replay exactly li
 
 The flow re-runs every measurement on the recorded frames, so its timing follows the
 recording: steps begin when the flow decides, not when the original call's steps began.
-Nothing is sent to a caregiver (dry run) unless ONSET_CAREGIVER_SEND=1 is set.
+A replay never texts a caregiver: the escalation is always a dry run (logged as an `action`
+event), even with ONSET_LIVE_ACTIONS=1.
 """
 
 from __future__ import annotations
@@ -74,7 +75,7 @@ async def replay(path: str, *, fast: bool, voice: bool, patient: str | None, ste
     speaker = Speaker(tts, sink=sink, enabled=tts is not None)
     flow = CheckFlow(sink=sink, say=speaker.say if tts is not None else None, patient_id=patient,
                      source="replay", run_id=run_id, baseline_dir=baseline_dir,
-                     caregiver_phone=os.environ.get("ONSET_CAREGIVER_PHONE", ""))
+                     caregiver_phone=os.environ.get("ONSET_CAREGIVER_PHONE", ""), caregiver_send=False)
 
     # The recording starts at the flow's start (bridge_ready); replay on the same clock.
     marks = {m["name"]: m["t"] for m in s.marks}

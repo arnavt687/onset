@@ -40,7 +40,7 @@ the agent's lines, because callers cannot hear the agent over FaceTime yet).
       recording in `recordings/`; check `tools/demo.sh --replay recordings/<call-id>` plays it on the
       dashboard. This is the plan B for the stage.
 - [ ] **Caregiver text.** Decide: dry run (the bubble shows "Dry run: not sent") or a real send
-      (`ONSET_CAREGIVER_PHONE`, `ONSET_CAREGIVER_SEND=1`, and the caregiver phone must have texted the
+      (`ONSET_CAREGIVER_PHONE`, `ONSET_LIVE_ACTIONS=1`, and the caregiver phone must have texted the
       line once). Do not switch on the day without a rehearsal.
 - [ ] **Projector check.** Open the dashboard on the projector at the venue (or a TV) and read it from
       the back of the room. Browser full screen: F11. Zoom 100% (Ctrl+0). The layout is fixed 16:9.
