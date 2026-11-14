@@ -96,7 +96,8 @@ SEND_FPS = 15
 # How long after bridge_ready to wait for the caller's camera before declaring it missing.
 CALLER_VIDEO_GRACE_S = 10.0
 
-server = AgentServer()
+# ONSET_HEALTH_PORT lets a second agent (tests, a parallel experiment) run beside the live one.
+server = AgentServer(**({"port": int(os.environ["ONSET_HEALTH_PORT"])} if os.environ.get("ONSET_HEALTH_PORT") else {}))
 
 
 # --------------------------------------------------------------------------- helpers
