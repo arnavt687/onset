@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Try Onset</title>
+<meta name="description" content="Try Onset's one-minute stroke check-in in your browser: smile, both arms up for 10 seconds, repeat a sentence. Runs on your device; nothing is uploaded.">
+<meta name="theme-color" content="#070C14">
+<meta property="og:title" content="Try Onset: a one-minute check-in for the 90 days after a stroke">
+<meta property="og:description" content="The real Onset check, in your browser. The camera stays on your device.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='116' fill='%230A1322'/%3E%3Cpath d='M390.13 193.45A148 148 0 1 1 243.10 108.56' fill='none' stroke='%2367E0D2' stroke-width='54' stroke-linecap='round'/%3E%3Ccircle cx='330' cy='127.83' r='30.24' fill='%23FF6B57'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://storage.googleapis.com" crossorigin>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="bg" aria-hidden="true"></div>
+
+<!-- ================================================================== landing -->
+<main id="landing" class="screen on">
+  <header class="topbar">
+    <a class="brand" href="https://github.com/arnavt687/onset" aria-label="Onset on GitHub"><img src="assets/logo.svg" alt="Onset" width="114" height="32"></a>
+    <span class="tag">Emory Hacks 2026 · live demo</span>
+  </header>
+
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Try Onset in your browser</p>
+      <h1>A one-minute <span class="nw">check-in</span> for the 90&nbsp;days after a&nbsp;stroke</h1>
+      <p class="lede">Onset is a FaceTime call that runs the FAST checks and compares them with the person's own usual check-in. This is the same check on your webcam, in about a minute.</p>
+
+      <ol class="plan">
+        <li><span class="n">1</span><div><b>Smile</b><span>Relax your face, then a big smile.</span></div></li>
+        <li><span class="n">2</span><div><b>Arms</b><span>Both arms straight out for 10&nbsp;seconds.</span></div></li>
+        <li><span class="n">3</span><div><b>Sentence</b><span>Repeat one short sentence out loud.</span></div></li>
+      </ol>
+
+      <div class="cta">
+        <button type="button" class="btn primary big" id="start">Start the check-in
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13m-5-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="toggles">
+          <label class="toggle"><input type="checkbox" id="voice" checked><span class="sw"></span><span>Voice</span></label>
+          <label class="toggle" title="Pushes today's numbers past the thresholds so you can see what happens on a change."><input type="checkbox" id="simulate"><span class="sw"></span><span>Simulate a change</span></label>
+        </div>
+      </div>
+
+      <p class="privacy"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        <span>Your camera stays in this browser. The AI runs on your device, and Onset records and uploads nothing.</span></p>
+      <p class="fine">A demo of the experience, not a medical test. <span id="srnote"></span></p>
+    </div>
+
+    <div class="hero-visual" aria-hidden="true">
+      <div class="phone">
+        <div class="ph-screen">
+          <div class="ph-cap">Big smile! Hold it.</div>
+          <div class="ph-pill">Step 1 of 3 · Smile <i><b class="on"></b><b></b><b></b></i></div>
+          <svg class="ph-face" viewBox="0 0 200 240">
+            <defs><radialGradient id="pf" cx="50%" cy="40%" r="60%"><stop offset="0" stop-color="#1b3346"/><stop offset="1" stop-color="#0e1b29"/></radialGradient></defs>
+            <ellipse cx="100" cy="110" rx="62" ry="78" fill="url(#pf)" stroke="rgba(150,190,220,.25)"/>
+            <path d="M18 240c8-38 42-58 82-58s74 20 82 58" fill="#0e1b29" stroke="rgba(150,190,220,.2)"/>
+            <path class="ph-eye" d="M70 96q10-6 20 0M110 96q10-6 20 0" fill="none" stroke="#e9eef2" stroke-opacity=".55" stroke-width="2.4" stroke-linecap="round"/>
+            <path class="ph-mouth" d="M76 140q24 20 48 0" fill="none" stroke="#67E0D2" stroke-width="2.6" stroke-linecap="round"/>
+            <circle class="ph-dot l" cx="76" cy="140" r="4.5"/><circle class="ph-dot r" cx="124" cy="140" r="4.5"/>
+            <line x1="62" y1="96" x2="138" y2="96" stroke="#fff" stroke-opacity=".18" stroke-dasharray="2 4"/>
+          </svg>
+          <div class="ph-bar"><i></i></div>
+        </div>
+      </div>
+      <div class="readout">
+        <div><span>left lift</span><b>0.12</b></div>
+        <div><span>right lift</span><b>0.13</b></div>
+        <div><span>asymmetry</span><b class="glow">0.08</b></div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="links">
+    <a href="https://youtu.be/L58lr_4DPik" target="_blank" rel="noopener">Watch the 3-minute demo</a>
+    <a href="https://dev.to/arnav_t_173f963b39a3c9c52/i-built-a-stroke-check-in-you-facetime-and-the-hardest-bug-wasnt-mine-1a26" target="_blank" rel="noopener">How it was built</a>
+    <a href="https://github.com/arnavt687/onset" target="_blank" rel="noopener">Source on GitHub</a>
+  </footer>
+</main>
+
+<!-- ================================================================== the check -->
+<main id="check" class="screen" aria-label="Onset check-in">
+  <header class="topbar slim">
+    <span class="brand"><img src="assets/logo-glyph.svg" alt="" width="26" height="26"><b>Onset</b><span class="sub">check-in · demo</span></span>
+    <div class="tools">
+      <span class="local"><i></i>on-device</span>
+      <button type="button" class="iconbtn" id="mute" aria-pressed="false" title="Mute the voice">
+        <svg class="on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <svg class="off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="m16 9.5 5 5m0-5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span class="lbl">Voice</span></button>
+      <button type="button" class="iconbtn" id="exit" title="End the check-in"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span class="lbl">End</span></button>
+    </div>
+  </header>
+
+  <div class="checkgrid">
+    <div class="stagewrap">
+      <div class="stage" id="stage">
+        <video id="video" playsinline muted autoplay></video>
+        <canvas id="overlay"></canvas>
+        <div class="cdbar" id="cdbar" hidden><i></i></div>
+        <div class="cap bottom" id="cap" aria-live="polite"></div>
+        <div class="steppill" id="pill" hidden></div>
+        <div class="ring" id="ring" hidden>
+          <svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="52" class="track"/><circle cx="60" cy="60" r="52" class="arc" id="ringarc"/></svg>
+          <div class="n"><b id="ringn">10</b><small>seconds</small></div>
+        </div>
+        <div class="loading" id="loading" hidden>
+          <div class="spinner"></div>
+          <b id="loadtitle">Loading the on-device AI</b>
+          <span id="loadsub">Face and body models, about 12 MB, downloaded once.</span>
+        </div>
+        <div class="stagebtns">
+          <button type="button" class="btn ghost" id="skip" hidden>Skip this step</button>
+          <button type="button" class="btn primary" id="done" hidden>Done speaking</button>
+        </div>
+      </div>
+    </div>
+
+    <aside class="live" id="live" aria-label="What Onset is measuring">
+      <h2><span id="livetitle">What Onset measures</span><span class="chip waiting" id="livechip">ready</span></h2>
+      <div id="livebody"></div>
+    </aside>
+  </div>
+</main>
+
+<!-- ================================================================== results -->
+<main id="results" class="screen" aria-label="Your results">
+  <header class="topbar">
+    <span class="brand"><img src="assets/logo.svg" alt="Onset" width="100" height="28"></span>
+    <label class="toggle" title="Pushes today's numbers past the thresholds so you can see what happens on a change."><input type="checkbox" id="simulate2"><span class="sw"></span><span>Simulate a change</span></label>
+  </header>
+  <div class="rwrap">
+    <section class="verdict" id="verdict"></section>
+    <section class="escalate" id="escalate" hidden></section>
+    <section class="metrics" id="metrics"></section>
+    <p class="rnote" id="rnote"></p>
+    <div class="ractions">
+      <button type="button" class="btn primary" id="again">Try again</button>
+      <a class="btn ghost" href="https://youtu.be/L58lr_4DPik" target="_blank" rel="noopener">Watch the real call</a>
+      <a class="btn ghost" href="https://dev.to/arnav_t_173f963b39a3c9c52/i-built-a-stroke-check-in-you-facetime-and-the-hardest-bug-wasnt-mine-1a26" target="_blank" rel="noopener">Read the write-up</a>
+      <a class="btn ghost" href="https://github.com/arnavt687/onset" target="_blank" rel="noopener">GitHub</a>
+    </div>
+    <p class="fine center">Demo baseline and demo history. The camera is off. Onset is a research prototype and cannot diagnose.</p>
+  </div>
+</main>
+
+<!-- ================================================================== something went wrong -->
+<main id="problem" class="screen" aria-live="assertive">
+  <header class="topbar"><span class="brand"><img src="assets/logo.svg" alt="Onset" width="100" height="28"></span></header>
+  <div class="pwrap">
+    <div class="pcard">
+      <div class="picon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 8v5m0 3.5v.01" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2"/></svg></div>
+      <h2 id="ptitle">Something went wrong</h2>
+      <p id="pbody"></p>
+      <div class="ractions">
+        <button type="button" class="btn primary" id="pretry">Try again</button>
+        <a class="btn ghost" href="https://youtu.be/L58lr_4DPik" target="_blank" rel="noopener">Watch the video instead</a>
+        <button type="button" class="btn ghost" id="psample">See a sample result</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<noscript><p class="noscript">This demo needs JavaScript. <a href="https://youtu.be/L58lr_4DPik">Watch the video instead</a>.</p></noscript>
+<script type="module" src="app.js"></script>
+</body>
+</html>

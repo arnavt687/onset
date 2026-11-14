@@ -5,6 +5,8 @@
 [![ci](https://github.com/arnavt687/onset/actions/workflows/ci.yml/badge.svg)](https://github.com/arnavt687/onset/actions/workflows/ci.yml)
 ![research prototype](https://img.shields.io/badge/research%20prototype-not%20a%20medical%20device-ff5b45)
 
+**Try it in your browser: [arnavt687.github.io/onset/try](https://arnavt687.github.io/onset/try/)**. The same one-minute check on your webcam; it runs on your device and nothing is uploaded.
+
 ![Onset: a one-minute stroke check-in you FaceTime](docs/demo/screenshots/polish/readme-hero.jpg)
 
 **A one-minute post-discharge stroke check-in you FaceTime.** Onset runs the checks of FAST,
