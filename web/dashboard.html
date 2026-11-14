@@ -66,7 +66,12 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .badge.synthetic { border-color: var(--amber); color: var(--amber); }
 
 /* ---------------------------------------------------------------- the four panels */
-main { display: grid; grid-template-columns: 1.08fr 1fr; grid-template-rows: 1.22fr 0.78fr; gap: 0.8cqw; min-height: 0; }
+/* Video over decision on the left, the meters in the middle, the caregiver's phone on the right. */
+main { display: grid; grid-template-columns: 1.12fr 1fr 0.6fr; grid-template-rows: 1.2fr 0.8fr; gap: 0.8cqw; min-height: 0; }
+#video { grid-column: 1; grid-row: 1; }
+#decision { grid-column: 1; grid-row: 2; }
+#meters { grid-column: 2; grid-row: 1 / 3; }
+#caregiver { grid-column: 3; grid-row: 1 / 3; }
 .panel { background: var(--panel); border: 0.1cqw solid var(--line); border-radius: 0.9cqw; padding: 0.9cqw 1.1cqw;
   min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .panel h2 { margin: 0 0 0.6cqw; font-size: 0.95cqw; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); font-weight: 600;
@@ -75,11 +80,11 @@ main { display: grid; grid-template-columns: 1.08fr 1fr; grid-template-rows: 1.2
 /* (a) video */
 #video { padding: 0.7cqw; }
 .vwrap { position: relative; flex: 1; min-height: 0; background: #000; border-radius: 0.6cqw; overflow: hidden; display: grid; place-items: center; }
-.vwrap img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.vwrap img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: none; }
 .vwrap .placeholder { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--dim); font-size: 1.5cqw; padding: 2cqw; }
 .vwrap.stale img { opacity: 0.45; filter: grayscale(0.6); }
-.vtag { position: absolute; top: 0.6cqw; left: 0.6cqw; font-size: 0.85cqw; padding: 0.2cqw 0.6cqw; border-radius: 0.4cqw; background: rgba(0,0,0,.6); color: var(--muted); }
-.vtag.livetag { color: #fff; background: rgba(240,82,82,.85); }
+.vtag { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; text-transform: uppercase; font-weight: 700; letter-spacing: 0.08em; font-size: 1.3cqw; padding: 0.2cqw 0.6cqw; border-radius: 0.4cqw; background: rgba(0,0,0,.6); color: var(--muted); }
+.vwrap.stale .vtag { display: block; }
 .count { position: absolute; top: 0.6cqw; right: 0.6cqw; font-size: 2.6cqw; font-weight: 800; min-width: 5cqw; text-align: center;
   padding: 0.1cqw 0.8cqw; border-radius: 0.6cqw; background: rgba(0,0,0,.65); font-variant-numeric: tabular-nums; }
 .caption { margin-top: 0.6cqw; font-size: 2.15cqw; line-height: 1.2; font-weight: 700; min-height: 2.6cqw; }
@@ -93,7 +98,7 @@ main { display: grid; grid-template-columns: 1.08fr 1fr; grid-template-rows: 1.2
 .check.st-unclear { border-color: var(--amber); }
 .check.st-measuring { border-color: var(--blue); }
 .chead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35cqw; }
-.chead .name { font-size: 1.45cqw; font-weight: 700; }
+.chead .name { font-size: 1.65cqw; font-weight: 700; }
 .chead .name small { font-size: 0.95cqw; color: var(--muted); font-weight: 400; margin-left: 0.5cqw; }
 .chip { font-size: 0.95cqw; font-weight: 700; padding: 0.15cqw 0.8cqw; border-radius: 1cqw; text-transform: uppercase; letter-spacing: 0.06em; }
 .chip.waiting { background: transparent; color: var(--dim); border: 0.1cqw solid var(--line); }
@@ -102,52 +107,54 @@ main { display: grid; grid-template-columns: 1.08fr 1fr; grid-template-rows: 1.2
 .chip.changed { background: var(--red); color: #fff; }
 .chip.unclear { background: var(--amber); color: #1d1300; }
 @keyframes pulse { 50% { opacity: 0.55; } }
-.rows { display: grid; grid-template-columns: 9.5cqw 1fr 9cqw; align-items: center; column-gap: 0.8cqw; row-gap: 0.3cqw; font-size: 1.05cqw; }
+.rows { display: grid; grid-template-columns: 7.4cqw 1fr 10.2cqw; align-items: center; column-gap: 0.7cqw; row-gap: 0.6cqw; font-size: 1.15cqw; }
 .rows .lbl { color: var(--muted); white-space: nowrap; }
-.rows .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.2cqw; white-space: nowrap; }
-.rows .val small { display: block; font-size: 0.8cqw; color: var(--dim); font-weight: 400; }
+.rows .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.35cqw; white-space: nowrap; }
+.rows .val small { font-size: 0.85cqw; color: var(--muted); font-weight: 400; margin-left: 0.4cqw; }
+.legend { display: flex; gap: 1.2cqw; font-size: 0.85cqw; color: var(--muted); justify-content: flex-end; margin: -0.2cqw 0 -0.1cqw; }
+.legend i { display: inline-block; width: 0.22cqw; height: 0.9cqw; vertical-align: middle; margin-right: 0.35cqw; background: var(--text); }
+.legend i.chg { background: var(--red); }
 .rows .val.bad { color: var(--red); }
 .rows .val.warn { color: var(--amber); }
-.gauge { position: relative; height: 1.1cqw; background: #0c1324; border-radius: 0.6cqw; overflow: visible; }
+.gauge { position: relative; height: 1.4cqw; background: #0c1324; border-radius: 0.6cqw; overflow: visible; }
 .gauge .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0.6cqw; background: var(--ok); transition: width .2s linear; }
 .gauge.live .fill { background: var(--blue); }
 .gauge.bad .fill { background: var(--red); }
 .gauge.warn .fill { background: var(--amber); }
-.gauge .tick { position: absolute; top: -0.35cqw; bottom: -0.35cqw; width: 0.22cqw; background: var(--text); border-radius: 0.1cqw; }
+.gauge .tick { position: absolute; top: -0.3cqw; bottom: -0.3cqw; width: 0.22cqw; margin-left: -0.11cqw; background: var(--text); border-radius: 0.1cqw; }
 .gauge .tick.chg { background: var(--red); opacity: 0.9; }
-.gauge .tick span { position: absolute; top: -1.05cqw; left: 50%; transform: translateX(-50%); font-size: 0.7cqw; color: var(--muted); white-space: nowrap; }
-.gauge .tick.chg span { color: var(--red); }
-.transcript { font-size: 1.15cqw; line-height: 1.3; margin: 0.1cqw 0 0.35cqw; color: var(--text); min-height: 1.5cqw; }
+.transcript { font-size: 1.3cqw; line-height: 1.3; margin: 0.1cqw 0 0.35cqw; color: var(--text); min-height: 1.5cqw; }
 .transcript .exp { color: var(--dim); font-size: 0.9cqw; display: block; }
 .note { font-size: 0.9cqw; color: var(--muted); margin-top: 0.25cqw; }
 .note.bad { color: var(--red); } .note.warn { color: var(--amber); }
 
 /* (c) decision */
 #decision { justify-content: flex-start; }
-.outcome { border-radius: 0.8cqw; padding: 0.9cqw 1.2cqw; font-size: 2.7cqw; font-weight: 800; line-height: 1.1; background: var(--neutral-bg); color: var(--neutral); }
+.outcome { border-radius: 0.8cqw; padding: 0.7cqw 1.1cqw; font-size: 2.5cqw; font-weight: 800; line-height: 1.1; background: var(--neutral-bg); color: var(--neutral); }
 .outcome.pending { background: transparent; border: 0.12cqw dashed var(--line); color: var(--dim); font-size: 2cqw; font-weight: 600; }
 .outcome.escalate { background: var(--red); color: #fff; }
 .outcome.unclear { background: var(--amber); color: #1d1300; }
 .outcome.neutral { background: var(--neutral-bg); color: var(--neutral); }
-.outcome small { display: block; font-size: 1.1cqw; font-weight: 500; margin-top: 0.35cqw; opacity: 0.92; }
-.reasons { margin: 0.7cqw 0 0; padding-left: 1.4cqw; font-size: 1.3cqw; line-height: 1.35; overflow: hidden; }
-.reasons li { margin-bottom: 0.15cqw; }
-.dmeta { margin-top: auto; font-size: 0.9cqw; color: var(--dim); padding-top: 0.4cqw; }
+.outcome small { display: block; font-size: 1.05cqw; font-weight: 500; margin-top: 0.35cqw; opacity: 0.92; }
+.reasons { margin: 0.55cqw 0 0; padding-left: 1.4cqw; font-size: 1.22cqw; line-height: 1.3; overflow: hidden; columns: 2; column-gap: 2cqw; }
+.reasons.one { columns: 1; }
+.reasons li { margin-bottom: 0.15cqw; break-inside: avoid; }
+.dmeta { font-size: 0.9cqw; color: var(--muted); text-transform: none; letter-spacing: 0; font-weight: 400; }
 
 /* (d) caregiver phone */
-#caregiver { flex-direction: row; gap: 1.2cqw; align-items: stretch; }
-.cg-side { flex: 0 0 34%; display: flex; flex-direction: column; justify-content: center; gap: 0.6cqw; font-size: 1.05cqw; color: var(--muted); }
+#caregiver { gap: 0.8cqw; }
+.cg-side { display: flex; flex-direction: column; gap: 0.4cqw; font-size: 1.05cqw; color: var(--muted); }
 .cg-side h2 { margin-bottom: 0; }
 .cg-status { font-size: 1.5cqw; font-weight: 800; color: var(--text); }
 .cg-status.dry { color: var(--neutral); }
 .cg-status.sent { color: var(--blue); }
 .cg-status.failed { color: var(--red); }
 .cg-detail { font-size: 0.95cqw; color: var(--muted); word-break: break-word; }
-.phone { flex: 1; background: #000; border-radius: 1.4cqw; border: 0.3cqw solid #2b3550; padding: 0.6cqw 0.9cqw; display: flex; flex-direction: column; min-width: 0; }
+.phone { flex: 1; min-height: 0; background: #000; border-radius: 1.8cqw; border: 0.35cqw solid #2b3550; padding: 0.8cqw 0.8cqw; display: flex; flex-direction: column; min-width: 0; }
 .phone .ph-top { text-align: center; font-size: 0.85cqw; color: #8e8e93; border-bottom: 0.08cqw solid #222; padding-bottom: 0.35cqw; }
 .phone .ph-top b { display: block; color: #fff; font-size: 1cqw; }
 .phone .msgs { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; padding-top: 0.4cqw; min-height: 0; overflow: hidden; }
-.bubble { align-self: flex-end; max-width: 92%; background: var(--imsg); color: #fff; border-radius: 1.1cqw 1.1cqw 0.3cqw 1.1cqw; padding: 0.55cqw 0.85cqw; font-size: 1.02cqw; line-height: 1.3; white-space: pre-wrap; }
+.bubble { align-self: flex-end; max-width: 96%; background: var(--imsg); color: #fff; border-radius: 1.1cqw 1.1cqw 0.3cqw 1.1cqw; padding: 0.6cqw 0.85cqw; font-size: 1.12cqw; line-height: 1.3; white-space: pre-wrap; }
 .bubble.dry { background: #3a3a3c; border: 0.12cqw dashed #8e8e93; }
 .bubble.failed { background: #3a3a3c; }
 .receipt { align-self: flex-end; font-size: 0.8cqw; color: #8e8e93; margin-top: 0.2cqw; }
@@ -171,6 +178,7 @@ footer { text-align: center; font-size: 0.95cqw; color: var(--dim); letter-spaci
     <div class="timeline" id="timeline"></div>
     <div class="right">
       <span class="badge" id="runbadge">no call yet</span>
+      <span id="dtime" style="font-variant-numeric: tabular-nums"></span>
       <span class="conn" id="conn"><i></i><span>connecting</span></span>
       <label class="toggle" title="Callers cannot hear the agent over FaceTime yet, so the laptop speaks its lines.">
         <input type="checkbox" id="voice" checked><span class="sw"></span><span>Play agent voice in the room</span>
@@ -183,7 +191,7 @@ footer { text-align: center; font-size: 0.95cqw; color: var(--dim); letter-spaci
       <div class="vwrap" id="vwrap">
         <img id="frame" alt="The agent's video, as the caller sees it">
         <div class="placeholder" id="vph">Waiting for the agent's video.<br>Call the line on FaceTime to start.</div>
-        <span class="vtag" id="vtag">agent video</span>
+        <span class="vtag" id="vtag">video paused</span>
         <span class="count" id="count" hidden></span>
       </div>
       <div class="caption" id="caption"></div>
@@ -191,16 +199,16 @@ footer { text-align: center; font-size: 0.95cqw; color: var(--dim); letter-spaci
     </section>
 
     <section class="panel" id="meters">
+      <div class="legend"><span><i></i>this person's usual</span><span><i class="chg"></i>counts as a change</span></div>
       <div class="check" id="c-face"></div>
       <div class="check" id="c-arms"></div>
       <div class="check" id="c-speech"></div>
     </section>
 
     <section class="panel" id="decision">
-      <h2><span>Decision</span><span id="dtime"></span></h2>
+      <h2><span>Decision</span><span class="dmeta" id="dmeta"></span></h2>
       <div class="outcome pending" id="outcome">Waiting for a call</div>
       <ul class="reasons" id="reasons"></ul>
-      <div class="dmeta" id="dmeta"></div>
     </section>
 
     <section class="panel" id="caregiver">
@@ -353,8 +361,8 @@ function gauge(value, max, opts = {}) {
   const v = num(value);
   const w = v === null ? 0 : Math.max(0, Math.min(1, v / max)) * 100;
   let ticks = "";
-  if (num(opts.usual) !== null) ticks += `<div class="tick" style="left:${Math.min(100, opts.usual / max * 100)}%"><span>usual</span></div>`;
-  if (num(opts.change) !== null && opts.change <= max) ticks += `<div class="tick chg" style="left:${Math.min(100, opts.change / max * 100)}%"><span>${esc(opts.changeLabel || "change")}</span></div>`;
+  if (num(opts.usual) !== null) ticks += `<div class="tick" title="usual" style="left:${Math.min(100, opts.usual / max * 100)}%"></div>`;
+  if (num(opts.change) !== null && opts.change <= max) ticks += `<div class="tick chg" title="${esc(opts.changeLabel || "change")}" style="left:${Math.min(100, opts.change / max * 100)}%"></div>`;
   return `<div class="gauge ${opts.cls || ""}"><div class="fill" style="width:${w}%"></div>${ticks}</div>`;
 }
 function row(label, gaugeHtml, valHtml, cls = "") {
@@ -364,6 +372,7 @@ function head(name, sub, st) {
   return `<div class="chead"><div class="name">${esc(name)}<small>${esc(sub)}</small></div><span class="chip ${st}">${CHIP[st]}</span></div>`;
 }
 function usualTxt(v, fmt = f2) { return num(v) === null ? "" : `<small>usual ${fmt(v)}</small>`; }
+const wpmFmt = v => String(Math.round(v));
 function qualityNote(r, st) {
   if (!r) return "";
   if (r.quality !== "ok") return `<div class="note warn">Not measured clearly: ${esc(QUALITY[r.quality] || r.quality)}${r.detail && r.detail.reason ? " (" + esc(r.detail.reason) + ")" : ""}</div>`;
@@ -380,7 +389,7 @@ function renderFace() {
   const chg = num(usual) !== null ? usual + TH.face_asymmetry_increase : null;
   const bad = st === "changed";
   const sub = live ? (S.step === "face_neutral" ? "relaxed face" : S.step === "face_smile" ? "big smile" : "smile check")
-                   : (r.weaker_side ? `${r.weaker_side} side lifts less` : "smile check");
+                   : (bad && r.weaker_side ? `${r.weaker_side} side lifts less than usual` : "smile check");
   let h = head("Face", sub, st) + `<div class="rows">`;
   h += row("Left lift", gauge(ll, 0.3, { cls: live ? "live" : "" }), f2(ll));
   h += row("Right lift", gauge(lr, 0.3, { cls: live ? "live" : "" }), f2(lr));
@@ -405,7 +414,7 @@ function renderArms() {
   } else { holdFill = num(r.hold_seconds) ?? 0; holdVal = `${(num(r.hold_seconds) ?? 0).toFixed(1)} s held`; }
   const holdWarn = !live && num(r.hold_seconds) !== null && r.hold_seconds < TH.arm_min_hold_s;
   const sub = live ? (S.step === "arms_wait" ? "waiting for both arms up" : S.step === "arms_hold" ? "hold both arms up" : "arm hold")
-                   : (r.weaker_side ? `${r.weaker_side} arm drifts more` : "arm hold");
+                   : (bad && r.weaker_side ? `${r.weaker_side} arm drifts more than usual` : "arm hold");
   let h = head("Arms", sub, st) + `<div class="rows">`;
   h += row("Left drift", gauge(Math.max(0, dl ?? 0), 0.3, { cls: live ? "live" : "" }), f2(dl));
   h += row("Right drift", gauge(Math.max(0, dr ?? 0), 0.3, { cls: live ? "live" : "" }), f2(dr));
@@ -429,7 +438,7 @@ function renderSpeech() {
   h += row("Word errors", gauge(wer, 1, { usual: uWer, change: num(uWer) !== null ? uWer + TH.speech_wer_increase : null, cls: f.wer ? "bad" : "" }),
            pct(wer) + usualTxt(uWer, pct), f.wer ? "bad" : "");
   h += row("Pace", gauge(wpm, 220, { usual: uWpm, change: num(uWpm) !== null ? uWpm * (1 - TH.speech_rate_drop_fraction) : null, changeLabel: "slow", cls: f.wpm ? "bad" : "" }),
-           (num(wpm) === null ? "–" : Math.round(wpm) + " wpm") + usualTxt(uWpm, v => Math.round(v) + " wpm"), f.wpm ? "bad" : "");
+           (num(wpm) === null ? "–" : Math.round(wpm) + " wpm") + usualTxt(uWpm, wpmFmt), f.wpm ? "bad" : "");
   h += row("Longest pause", gauge(pause, 3, { change: TH.speech_longest_pause_s, changeLabel: "long", cls: f.pause ? "bad" : "" }),
            num(pause) === null ? "–" : pause.toFixed(1) + " s", f.pause ? "bad" : "");
   h += `</div>` + qualityNote(r, st);
@@ -464,24 +473,25 @@ function renderDecision() {
     reasons = d.reasons || [];
     if (d.outcome === "escalate") { cls = "escalate"; html = "Change noticed → call 911<small>The person was told to call 911 now.</small>"; }
     else if (d.outcome === "unclear") { cls = "unclear"; html = "Couldn't measure clearly → call 911<small>Treated exactly like a change: the person was told to call 911.</small>"; }
-    else { cls = "neutral"; html = "No change from usual check-in<small>Onset never says you're fine. If you feel unwell, call 911.</small>"; }
+    else { cls = "neutral"; html = "No change from usual check‑in<small>Onset never says you're fine. If you feel unwell, call 911.</small>"; }
   } else if (S.baselineSaved) {
-    cls = "neutral"; html = "First check-in recorded as usual<small>Next check-ins are compared with this one.</small>";
+    cls = "neutral"; html = "First check‑in recorded as usual<small>Next check-ins are compared with this one.</small>";
   } else if (S.ended && S.hasBaseline === false && S.step === "closing") {
-    cls = "unclear"; html = "Couldn't record a usual check-in<small>Try again later. If you feel unwell, call 911.</small>";
+    cls = "unclear"; html = "Couldn't record a usual check‑in<small>Try again later. If you feel unwell, call 911.</small>";
   } else if (S.ended && S.ended.reason && S.ended.reason !== "complete") {
     cls = "unclear"; html = `Check-in ended early<small>${esc(S.ended.reason)}</small>`;
   }
   o.className = "outcome " + cls; o.innerHTML = html;
   $("reasons").innerHTML = reasons.map(r => `<li>${esc(r)}</li>`).join("");
+  $("reasons").className = "reasons" + (reasons.length > 3 ? "" : " one");
   let meta = "";
   if (S.runId) {
-    if (S.baseline && S.baseline.recorded_at) meta = `Compared with this person's usual check-in from ${fmtDate(S.baseline.recorded_at)}` + (S.baseline.samples > 1 ? ` (${S.baseline.samples} check-ins)` : "");
-    else if (S.hasBaseline) meta = "Compared with this person's saved usual check-in";
-    else if (S.hasBaseline === false) meta = "No usual check-in saved yet: this call records one";
+    if (S.baseline && S.baseline.recorded_at) meta = `Compared with usual check-in of ${fmtDate(S.baseline.recorded_at)}` + (S.baseline.samples > 1 ? ` (${S.baseline.samples} check-ins)` : "");
+    else if (S.hasBaseline) meta = "Compared with the saved usual check-in";
+    else if (S.hasBaseline === false) meta = "No usual check-in yet: this call records one";
   }
   $("dmeta").textContent = meta;
-  $("dtime").textContent = S.runId ? fmtClock(nowT()) : "";
+  $("dtime").textContent = S.runId ? fmtClock(S.ended && num(S.ended.t) !== null ? S.ended.t : nowT()) : "";
 }
 function fmtClock(t) { t = Math.max(0, Math.floor(t)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; }
 
@@ -526,7 +536,7 @@ function renderVideo() {
   } else { b.textContent = "no call yet"; b.className = "badge"; }
 }
 
-let dirty = false;
+let dirty = true;
 function render() { dirty = true; }
 function draw() {
   if (dirty) {
@@ -574,19 +584,19 @@ async function pollFrame() {
       ph.style.display = "none"; img.style.display = "block";
       const stale = age > 2.5;
       wrap.classList.toggle("stale", stale);
-      tag.textContent = stale ? "video paused" : "agent video · live";
-      tag.className = "vtag" + (stale ? "" : " livetag");
+      tag.textContent = "video paused";
     } else {
-      img.style.display = "none"; ph.style.display = "grid"; tag.textContent = "agent video"; tag.className = "vtag";
+      img.style.display = "none"; ph.style.display = "grid"; wrap.classList.remove("stale");
     }
-  } catch (e) { tag.textContent = "video offline"; tag.className = "vtag"; }
+  } catch (e) { tag.textContent = "dashboard offline"; wrap.classList.add("stale"); }
   setTimeout(pollFrame, 200);
 }
 
 // ------------------------------------------------------------------ agent voice in the room
 const voice = $("voice"), unlock = $("unlock");
 let unlocked = false, queue = [], current = null;
-voice.checked = load("onset.voice") !== "0";
+const params = new URLSearchParams(location.search);
+voice.checked = params.has("voice") ? params.get("voice") !== "0" : load("onset.voice") !== "0";
 function showUnlock() { unlock.classList.toggle("show", voice.checked && !unlocked); }
 voice.addEventListener("change", () => { store("onset.voice", voice.checked ? "1" : "0"); if (!voice.checked) stopAudio(); showUnlock(); });
 unlock.addEventListener("click", () => {
@@ -610,7 +620,7 @@ function playNext() {
     const a = new Audio("/audio/" + encodeURIComponent(name));
     current = a; a.onended = done; a.onerror = done;
     a.play().catch(err => { current = null; if (err && err.name === "NotAllowedError") { unlocked = false; queue.unshift(ev); showUnlock(); } else done(); });
-  } else if (ev.text && window.speechSynthesis && new URLSearchParams(location.search).get("tts") !== "0") {
+  } else if (ev.text && window.speechSynthesis && params.get("tts") !== "0") {
     // No audio file for this line (e.g. a replay without voice): the browser's own voice says it.
     const u = new SpeechSynthesisUtterance(ev.text); u.rate = 0.95;
     current = u; u.onend = done; u.onerror = done; speechSynthesis.speak(u);
