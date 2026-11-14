@@ -25,7 +25,9 @@ onset-chert-api (PRs #10–#15, all merged into `main` on 14 Nov 2026).
 5. [ ] Laptop demo dashboard + `tools/demo.sh` + `docs/rehearsal.md` — subagent on branch `piece/dashboard`
 6. [x] Replay mode: `tools/replay_flow.py <recording>` (merged with the flow). Dashboard must keep playing `say` audio that arrives after `run_ended`.
    - Demo write-ups (run-of-show, deck text, Devpost, video plan, architecture, safety) — subagent on branch `piece/demo-docs`
-   - Code review of merged pieces — subagent, report only
+   - Code review of merged pieces: 13 findings fixed on `fix/review` and merged (396 tests pass). Known limit kept on
+     purpose: the -0.5 Scribe confidence cut-off does not catch the mildest synthetic slurs (-0.13 to -0.36); tune only
+     with real recordings. Say this in the limits slide / Devpost.
    - CI fixed on main (MediaPipe needs libegl1/libgles2 on the runner)
    - Event stream contract: `onset/events.py` (runs/live/events.jsonl, frame.jpg, audio/)
 7. [ ] Real calls with the user: baseline call + acted "change" call, recorded (needs the line back from chert-voice)
