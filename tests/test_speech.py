@@ -1,7 +1,7 @@
 """Piece 3 tests: WER and normalization offline; Scribe end to end only with ONSET_NETWORK_TESTS=1.
 
-The integration test makes a handful of short clips with ElevenLabs TTS (cached as .wav in
-tests/_speech_cache/, which git ignores) and sends each to Scribe once. Run it with:
+The integration test makes a handful of short clips with ElevenLabs TTS (cached in
+recordings/speech-tests/, which git ignores) and sends each to Scribe once. Run it with:
 
     ONSET_NETWORK_TESTS=1 ~/onset/.venv/bin/python -m pytest -q -s tests/test_speech.py
 """
@@ -196,6 +196,18 @@ def test_missing_key_is_error(monkeypatch):
     assert r.quality is Quality.ERROR
 
 
+def test_48k_is_sent_as_16k_pcm(monkeypatch):
+    seen = {}
+
+    async def fake(c, **kwargs):
+        seen["sr"], seen["n"] = c.sample_rate, len(c.pcm)
+        return await _fake_scribe([("It", 0.1, 0.3)])(c)
+
+    monkeypatch.setattr(speech, "transcribe", fake)
+    asyncio.run(check_sentence(clip(tone(1.0, 0.3, sr=48000), sr=48000), "It", api_key="x"))
+    assert seen == {"sr": 16000, "n": 16000 * 2}
+
+
 def test_result_detail_is_json():
     r = asyncio.run(check_sentence(clip(bytes(100)), SENTENCES[0], api_key="x"))
     json.dumps(r.detail)
@@ -205,7 +217,7 @@ def test_result_detail_is_json():
 
 network = pytest.mark.skipif(os.environ.get("ONSET_NETWORK_TESTS") != "1", reason="set ONSET_NETWORK_TESTS=1")
 
-CACHE = Path(__file__).parent / "_speech_cache"
+CACHE = Path(__file__).parent.parent / "recordings" / "speech-tests"  # recordings/ is gitignored
 VOICE = os.environ.get("ONSET_TEST_VOICE", "EXAVITQu4vr4xnSDxMaL")  # Sarah, as in agent.py
 SENT = SENTENCES[0]  # "You can't teach an old dog new tricks."
 
@@ -216,6 +228,7 @@ CLIPS = {
     "swapped_word": ("You can't teach an old frog new tricks.", 1.0),
     "slow_pauses": ('You can\'t teach <break time="1.8s" /> an old dog <break time="1.5s" /> new tricks.', 0.7),
     "garbled": ("Yoo kaan teesh un ohl dahg noo triks.", 0.8),
+    "mild_slur": ("You can't teash an old dog new twicks.", 0.9),
 }
 
 
@@ -280,7 +293,7 @@ def test_clear_sentence(results):
     r = results["clear"]
     assert r.quality is Quality.OK, r.detail
     assert r.word_error_rate <= 0.15
-    assert 80 <= r.words_per_minute <= 260
+    assert 80 <= r.words_per_minute <= 320  # TTS at speed 1.0 measured about 250
     assert r.longest_pause_s < 0.8
 
 
@@ -304,6 +317,9 @@ def test_garbled_is_recorded(results):
     # Not asserting a value: this clip measures whether Scribe "auto-corrects" (see notes/speech.md).
     r = results["garbled"]
     assert r.quality in (Quality.OK, Quality.NO_RESPONSE, Quality.PARTIAL)
+    assert r.word_error_rate >= 0.5  # heavy garbling is not hidden
+    # Mild slurring IS rewritten into the right words (WER 0); recorded, not asserted.
+    assert results["mild_slur"].quality is Quality.OK
 
 
 @network

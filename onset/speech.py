@@ -11,7 +11,8 @@ What goes into `detail` (all plain JSON values, safe to log; never the API key):
 - `words`: the heard words with start/end seconds and logprob
 - `alignment`: per expected word, what was heard (ok / sub / del / ins)
 - `fillers`, `audio_events`: "um"/"uh" and "(mumbling)"-style tags that were dropped before WER
-- `mean_logprob`, `min_logprob`: Scribe's confidence; low values hint that it guessed
+- `mean_logprob`, `min_logprob`, `low_confidence_words`: Scribe's confidence; low values hint
+  that it guessed (it rewrites mild slurring into the right words, so WER alone misses it)
 - `onset_delay_s`: seconds from the start of the clip to the first word
 - `autocorrect_note`: what we know about Scribe pulling slurred speech toward real words
 """
@@ -50,12 +51,17 @@ QUIET_DBFS = -40.0  # speech (loud windows) quieter than this is "too quiet"
 CLIP_LEVEL = 32000  # |sample| at or above this counts as clipped
 CLIP_FRACTION = 0.005  # more than 0.5% clipped samples makes the audio "clipped"
 
-# Recorded from the integration run; see notes/speech.md.
+# Provisional: TTS clear speech stayed above -0.10, mild slurring dipped to -0.13..-0.36.
+LOW_LOGPROB = -0.15
+
+# Measured in the integration run and probe, 2026-11-13; see notes/speech.md.
 AUTOCORRECT_NOTE = (
-    "Scribe is a language-model ASR: on garbled or slurred input it tends to output the "
-    "nearest real words, so a low WER does not prove clear speech. Use min_logprob and "
-    "words_per_minute/longest_pause_s alongside WER. No API option disables this; "
-    "temperature=0 and tag_audio_events=true are set, and no_verbatim is left off."
+    "Scribe auto-corrects MILD slurring toward real words: 'teash ... twicks' came back as "
+    "'teach ... tricks' (WER 0) on scribe_v1 and scribe_v2. Heavy garbling is not hidden "
+    "(WER 0.875). So a low WER does not prove clear speech; compare min_logprob, "
+    "low_confidence_words, words_per_minute and longest_pause_s with the baseline. No API "
+    "option turns the language model off; we send temperature=0, tag_audio_events=true, "
+    "language_code=en, leave no_verbatim off and send no keyterms (keyterms would add bias)."
 )
 
 FILLERS = {"um", "uh", "er", "erm", "ah", "hmm", "mm", "uhm", "umm"}
@@ -228,6 +234,16 @@ def audio_stats(clip: AudioClip) -> dict:
     }
 
 
+def to_16k(clip: AudioClip) -> AudioClip:
+    """Downsample 32/48 kHz to 16 kHz by block averaging, so Scribe gets raw PCM (lower latency)."""
+    factor, rem = divmod(clip.sample_rate, 16000)
+    if clip.sample_rate == 16000 or rem or factor < 2:
+        return clip
+    s = np.frombuffer(clip.pcm[: len(clip.pcm) // 2 * 2], dtype="<i2").astype(np.float64)
+    s = s[: len(s) // factor * factor].reshape(-1, factor).mean(axis=1)
+    return AudioClip(np.round(s).astype("<i2").tobytes(), 16000, clip.t_start)
+
+
 def _wav_bytes(clip: AudioClip) -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
@@ -344,7 +360,7 @@ async def check_sentence(
 
     t0 = time.monotonic()
     try:
-        data = await transcribe(clip, api_key=key, model_id=model_id, session=session)
+        data = await transcribe(to_16k(clip), api_key=key, model_id=model_id, session=session)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -368,6 +384,9 @@ async def check_sentence(
     if logprobs:
         detail["mean_logprob"] = round(sum(logprobs) / len(logprobs), 3)
         detail["min_logprob"] = round(min(logprobs), 3)
+    detail["low_confidence_words"] = [
+        w["text"] for w in content if isinstance(w.get("logprob"), (int, float)) and w["logprob"] < LOW_LOGPROB
+    ]
     if data.get("language_code"):
         detail["language"] = data.get("language_code")
 
