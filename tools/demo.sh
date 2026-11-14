@@ -88,6 +88,7 @@ for name in ("clock", "line", "worker", "line_free", "minutes"):
         print(email.sub("<account>", f"CHECK {name} {c.get('status')}: {c.get('detail', '')}{fix}"))
 clock = checks.get("clock", {}).get("status")
 print("CLOCK_OK=" + ("1" if clock == "pass" else "0"))
+print("LINE_FREE=" + str(checks.get("line_free", {}).get("status", "unknown")))
 m = re.search(r"\+?\d[\d ()-]{7,}\d", checks.get("line", {}).get("detail", ""))
 print("LINE=" + (m.group(0) if m else ""))
 EOF
@@ -95,11 +96,12 @@ EOF
   grep '^CHECK ' <<<"$parsed" | sed 's/^CHECK /[demo]   /'
   CLOCK_OK=$(sed -n 's/^CLOCK_OK=//p' <<<"$parsed")
   LINE_NUMBER=$(sed -n 's/^LINE=//p' <<<"$parsed")
+  LINE_FREE=$(sed -n 's/^LINE_FREE=//p' <<<"$parsed")
   if [ "$CLOCK_OK" != 1 ]; then
     if [ "$SKIP_CLOCK" = 1 ]; then
       say "clock check did not pass; continuing because of --skip-clock"
     else
-      die "clock check did not pass. Calls are declined when this computer is >0.25 s ahead of Chert. In WSL: 'sudo hwclock -s' or 'wsl --shutdown' from Windows; on Windows: Settings > Time > Sync now. Then run again (or pass --skip-clock)."
+      die "clock check did not pass (or Chert could not be reached; see above). Calls are declined when this computer is >0.25 s ahead of Chert. In WSL: 'sudo hwclock -s' or 'wsl --shutdown' from Windows; on Windows: Settings > Time > Sync now. Then run again (or pass --skip-clock)."
     fi
   fi
 }
@@ -216,6 +218,7 @@ r=$(already_running)
 [ -n "$r" ] && { echo "$r" >&2; die "agent, chert dev or a dashboard is already running: stop it first (tools/stop.sh, pkill -f tools/dashboard.py)"; }
 check_keys
 check_doctor
+[ "$LINE_FREE" = fail ] && die "another chert dev session holds the line (see line_free above). Wait for it to end or ask its owner to stop it; this script never uses --takeover."
 trap stop_all INT TERM
 
 say "starting the agent (log: $LOGS/agent-$STAMP.log)..."
