@@ -14,6 +14,14 @@ NOT yet confirmed on a real call: the friend must `git pull`, remove OUT_WIDTH/O
 .env.local, and call from an iPhone and a Mac. This computer's Gemini TTS answered 429 and ElevenLabs is
 out of credits, so local test calls speak with a chime.
 
+**14 Nov, evening:** issue #28 (demo.sh blockers) fixed on main (3baf6c4), commented, left open for the
+friend to confirm on his Mac. New presentation `web/present/` (7 scenes, live demo in the middle), served at
+http://localhost:8765/present (`tools/demo.sh --present`, `tools/present.sh`); voice commands ("next slide"),
+a microphone picker and an AirPod/media-key clicker (df244aa). Waiting on the user: try voice with their real
+AirPods and report what the panel's "Heard" and "Listening on" lines say. Known limit: on Windows, AirPods are
+a microphone or a clicker, not both. The orchestrator's session keeps a dashboard server on port 8765 for the
+user to view the presentation: stop it before `tools/demo.sh`.
+
 ## Sessions the resume job watches
 
 | Session id | Role | Watch? |
