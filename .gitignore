@@ -20,3 +20,6 @@ baselines/
 
 # MediaPipe models (downloaded by tools/setup-shared.sh)
 models/
+
+# Run logs, frames and spoken audio from calls and replays (may contain a face or voice)
+runs/
