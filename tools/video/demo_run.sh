@@ -3,6 +3,6 @@
 #   bash tools/video/demo_run.sh escalate|no_change|unclear|first_run [speed] [hold_end] [dry_run|sent|failed]
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-RUNS="${ONSET_VIDEO_RUNS:-$HOME/onset/runs/video/dash}"
+RUNS="${ONSET_VIDEO_RUNS:-$HOME/onset/runs/video/dash-v2}"
 exec ~/onset/.venv/bin/python tools/demo_events.py --outcome "$1" --runs "$RUNS" \
   --speed "${2:-1}" --hold-end "${3:-8}" --caregiver "${4:-sent}"

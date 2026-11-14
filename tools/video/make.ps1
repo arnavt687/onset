@@ -11,7 +11,7 @@
 param([string[]]$Steps = @('setup', 'servers', 'tts', 'captions', 'record', 'build'))
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$linux = ($here -replace '^\\wsl(\.localhost|\$)\[^\]+', '') -replace '\', '/'
+$linux = ($here -replace '^\\\\wsl(\.localhost|\$)\\[^\\]+', '') -replace '\\', '/'
 $repo = $linux -replace '/tools/video$', ''
 $scratch = "$env:LOCALAPPDATA\Temp\onset-video"
 $env:NODE_PATH = "$scratch\node_modules"

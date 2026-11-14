@@ -22,27 +22,27 @@ const CROP_CAREGIVER = [700, 354, 1220, 686];    // meters + the rest of the car
 module.exports = [
   { vo: 'n01_hook', pre: 0.8, post: 0.3, shots: [
     { card: 'title', ss: 0.3, dur: 6.0 },
-    { deck: 2, ss: 0.4, lower: { k: 'The problem', t: 'Recurrence risk is front-loaded', pos: 'br' } },
+    { deck: 2, ss: 1.3, lower: { k: 'The problem', t: 'Recurrence risk is front-loaded', pos: 'br' } },
   ] },
   { vo: 'n02_what', pre: 0.3, post: 0.5, shots: [
     { deck: 1, ss: 0.2, lower: { k: 'What it is', t: 'Prescribed 90-day remote monitoring', pos: 'br' } },
   ] },
   { vo: 'n04_smile', pre: 0.3, post: 0.4, shots: [
     { phone: 'face_smile', dur: 3.6, k: 'Check 1 of 3 · what the caller sees', t: 'Big smile' },
-    { deck: 8, ss: 0.4 },
+    { deck: 8, ss: 1.3 },
   ] },
   { vo: 'n05_arms', pre: 0.3, post: 0.4, shots: [
     { phone: 'arms_hold', dur: 3.4, k: 'Check 2 of 3 · what the caller sees', t: 'Both arms up, 10 seconds' },
-    { deck: 9, ss: 0.4 },
+    { deck: 9, ss: 1.3 },
   ] },
   { vo: 'n06_speech', pre: 0.3, post: 0.4, shots: [
-    { deck: 10, ss: 0.4, dur: 5.6, lower: { k: 'Check 3 of 3', t: 'Repeat a sentence', pos: 'br' } },
+    { deck: 10, ss: 1.3, dur: 5.6, lower: { k: 'Check 3 of 3', t: 'Repeat a sentence', pos: 'br' } },
     { phone: 'sentence_go', k: 'Check 3 of 3 · what the caller sees', t: 'Every step is a caption', p: "Instructions, the countdown and the result are written on the agent's FaceTime video, so the check works with the sound off." },
   ] },
   { vo: 'n07_usual', pre: 0.3, post: 0.8, shots: [
-    { dash: 'first_run', ss: 44.0, speed: 1, dur: 5.4, lower: { k: 'Monitoring dashboard', t: 'First check-in: baseline recorded', pos: 'tl' } },
+    { dash: 'first_run', ss: 45.0, speed: 1, dur: 5.4, lower: { k: 'Monitoring dashboard', t: 'First check-in: baseline recorded', pos: 'tl' } },
     { dash: 'no_change', ss: 21, speed: 2.5, dur: 3.0, crop: CROP_METERS },
-    { dash: 'no_change', ss: 43, speed: 1, lower: { k: 'Usual morning', t: 'No change detected', pos: 'tl' } },
+    { dash: 'no_change', ss: 46.2, speed: 1, lower: { k: 'Usual morning', t: 'No change detected', pos: 'tl' } },
   ] },
   { vo: 'n08_change', pre: 0.6, post: 0.3, shots: [
     { dash: 'escalate', ss: 9.5, speed: 2.2, crop: CROP_METERS, lower: { k: 'A change', t: 'One-sided smile · arm drift · pause', alert: true } },
@@ -53,22 +53,22 @@ module.exports = [
     { phone: 'close_escalate', k: 'What the caller sees', t: 'The caregiver joins the call', p: 'Onset does not dial 911 itself. It adds the caregiver to the live FaceTime call and strongly recommends calling 911 now.' },
   ] },
   { vo: 'n10_caregiver', pre: 0.4, post: 1.0, shots: [
-    { dash: 'escalate', ss: 46.0, speed: 1, dur: 3.4, crop: CROP_CAREGIVER_TOP, lower: { k: 'Caregiver iMessage', t: 'What changed against the baseline', alert: true } },
-    { dash: 'escalate', ss: 49.4, speed: 1, crop: CROP_CAREGIVER },
+    { dash: 'escalate', ss: 46.3, speed: 1, dur: 3.4, crop: CROP_CAREGIVER_TOP, lower: { k: 'Caregiver iMessage', t: 'What changed against the baseline', alert: true } },
+    { dash: 'escalate', ss: 49.7, speed: 1, crop: CROP_CAREGIVER },
   ] },
   { vo: 'n11_unclear', pre: 0.4, post: 0.8, shots: [
     { phone: 'arms_reframe', dur: 6.4, k: 'Out of frame · what the caller sees', t: 'Reposition, then retry', p: 'Onset names the problem, waits for the person to move back, and re-runs the step.' },
-    { dash: 'unclear', ss: 43, speed: 1, lower: { k: 'Persistent failure', t: 'Still unclear after a retry: escalate', alert: true, pos: 'tl' } },
+    { dash: 'unclear', ss: 46.6, speed: 1, lower: { k: 'Persistent failure', t: 'Still unclear after a retry: escalate', alert: true, pos: 'tl' } },
   ] },
   { vo: 'n12_how', pre: 0.5, post: 0.6, shots: [
-    { deck: 7, ss: 0.4, lower: { k: 'How it works', t: 'FaceTime → Chert → LiveKit → agent', pos: 'br' } },
+    { deck: 7, ss: 1.3, lower: { k: 'How it works', t: 'FaceTime → Chert → LiveKit → agent', pos: 'br' } },
   ] },
   { vo: 'n13_safety', pre: 0.4, post: 0.6, shots: [
-    { deck: 12, ss: 0.4, dur: 8.2, lower: { k: 'Safety by design', t: 'Sensitivity over specificity' } },
-    { deck: 12, ss: 8.6, lower: { k: 'Longitudinal record', t: 'A 90-day trajectory for the care team' } },
+    { deck: 12, ss: 1.3, dur: 8.2, lower: { k: 'Safety by design', t: 'Sensitivity over specificity' } },
+    { deck: 12, ss: 9.5, lower: { k: 'Longitudinal record', t: 'A 90-day trajectory for the care team' } },
   ] },
   { vo: 'n14_limits', pre: 0.4, post: 0.6, shots: [
-    { deck: 13, ss: 0.4, lower: { k: 'Limits and what’s next', t: 'Clinician-led validation study', pos: 'br' } },
+    { deck: 13, ss: 1.3, lower: { k: 'Limits and what’s next', t: 'Clinician-led validation study', pos: 'br' } },
   ] },
   { vo: null, pre: 0, post: 0, shots: [
     { card: 'end', ss: 0.3, dur: 6.5 },

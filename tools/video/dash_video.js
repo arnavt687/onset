@@ -17,6 +17,22 @@
       for (const [a, b] of SWAP) if (n.nodeValue.includes(a)) n.nodeValue = n.nodeValue.replace(a, b);
     }
   };
+  // tools/demo_events.py writes a test label into the top-left of the agent frame; cover it with
+  // the strip of background just below it before the page shows the frame.
+  const fetch0 = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    const r = await fetch0(input, init);
+    if (!String(input).startsWith('/frame.jpg') || !r.ok) return r;
+    try {
+      const bmp = await createImageBitmap(await r.clone().blob());
+      const c = new OffscreenCanvas(bmp.width, bmp.height), x = c.getContext('2d');
+      x.drawImage(bmp, 0, 0);
+      const s = bmp.width / 640;
+      x.drawImage(c, 0, 38 * s, 250 * s, 28 * s, 0, 4 * s, 250 * s, 28 * s);
+      const blob = await c.convertToBlob({ type: 'image/jpeg', quality: 0.92 });
+      return new Response(blob, { status: 200, headers: r.headers });
+    } catch (e) { return r; }
+  };
   addEventListener('DOMContentLoaded', () => {
     const st = document.createElement('style');
     st.textContent = '#runbadge{display:none!important}';

@@ -8,7 +8,7 @@ param(
 )
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 # This folder as a Linux path (the scripts live in WSL: \wsl.localhost\Ubuntu\home\...).
-$linux = ($here -replace '^\\wsl(\.localhost|\$)\[^\]+', '') -replace '\', '/'
+$linux = ($here -replace '^\\\\wsl(\.localhost|\$)\\[^\\]+', '') -replace '\\', '/'
 if (-not $env:NODE_PATH) { $env:NODE_PATH = "$env:LOCALAPPDATA\Temp\onset-video\node_modules" }
 foreach ($o in $Outcomes) {
   # ?voice=0: no "click to enable sound" overlay over the page.

@@ -571,7 +571,7 @@ Simplified rules from docs/thresholds.md: asymmetry +0.10, arm drift difference 
     <div class="tag left" data-at="speech.usual"><div class="lbl">usual check-in</div></div>
     <div class="tag left" data-at="speech.today"><div class="lbl" style="color:var(--text)">today</div></div>
     <div class="tag below" data-at="speech.pause"><div class="lbl" style="border-color:var(--alert);color:#FFD6CF">3.0 s pause</div></div>
-    <p class="sentence" data-r>"You can't teach an old … dog new tricks."  ·  illustration, generated timings</p>
+    <p class="sentence" data-r>"The sky is blue in … Cincinnati."  ·  illustration, generated timings</p>
     <aside class="notes">ElevenLabs Scribe turned mildly slurred words back into the correct sentence (word error rate 0) in our tests, on both scribe_v1 and v2. So word error rate catches wrong, missing or extra words, and rate and pauses are there for slowed or broken speech. The pause rule is absolute (1.5 s) because the baseline does not store a pause value yet. Values on this slide are an illustration.</aside>
   </section>
 
@@ -1150,7 +1150,7 @@ function makeWorld(THREE, canvas) {
       { cap: 'Big smile! Hold it.', pos: 't', step: 1, bar: 1 },
       { cap: 'Raise both arms straight out. Keep them up.', pos: 'b', step: 2 },
       { cap: 'Keep both arms up.', pos: 'b', step: 2, bar: 1 },
-      { cap: 'Say it now: “You can’t teach an old dog new tricks.”', pos: 'b', step: 3, bar: 1 },
+      { cap: 'Say it now: “The sky is blue in Cincinnati.”', pos: 'b', step: 3, bar: 1 },
       { cap: 'No change from your usual check-in. If you feel unwell, call 911.', pos: 'b' },
     ];
     const wrap = (txt, maxW) => { const words = txt.split(' '); const lines = []; let l = ''; for (const wd of words) { const tr = l ? l + ' ' + wd : wd; if (cx.measureText(tr).width > maxW && l) { lines.push(l); l = wd; } else l = tr; } if (l) lines.push(l); return lines; };
@@ -1486,7 +1486,7 @@ hooks['s-arms'] = { enter: () => armsLoop.start(), leave: () => armsLoop.stop() 
 /* ======================================================================================
    Live browser demo: MediaPipe on the webcam, Onset's script, simplified rules
    ====================================================================================== */
-const SENT = "You can't teach an old dog new tricks.";
+const SENT = "The sky is blue in Cincinnati.";
 const SENT_WORDS = 8;
 const TH = { face: .10, arms: .06, holdMin: 8, pause: 1.5, rate: .80 };
 const LINES = {
