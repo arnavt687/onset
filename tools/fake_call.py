@@ -146,6 +146,30 @@ def check_run(events: list[dict], audio: dict, *, sentence: str | None = None, e
     return failures
 
 
+def lag_warnings(events: list[dict], *, sentence: str | None = None) -> list[str]:
+    """Not failures: signs that the agent's speech is behind its captions (agent clock, `say`
+    is emitted when a line starts playing)."""
+    out: list[str] = []
+    t = lambda e: float(e.get("t", 0.0))  # noqa: E731
+    says = [e for e in events if e.get("type") == "say"]
+    started = next((e for e in events if e.get("type") == "run_started"), None)
+    if started is not None and says and t(says[0]) - t(started) > 5.0:
+        out.append(f"first line started {t(says[0]) - t(started):.1f}s after the check began")
+    sentence = sentence or run_sentence(events)
+    go = next((e for e in events if e.get("type") == "step" and str(e.get("caption", "")).startswith("Say it now")), None)
+    prompt = next((e for e in says if sentence and sentence in str(e.get("text", ""))), None)
+    if go is not None and prompt is not None and t(prompt) > t(go):
+        out.append(f"the spoken sentence prompt started {t(prompt) - t(go):.1f}s AFTER 'Say it now' "
+                   "(a caller who waits to hear it would be cut off)")
+    elif go is not None and prompt is None and says:
+        out.append("the sentence prompt was never spoken")
+    ended = next((e for e in events if e.get("type") == "run_ended"), None)
+    late = [e for e in says if ended is not None and t(e) > t(ended)]
+    if late:
+        out.append(f"{len(late)} spoken line(s) started after run_ended")
+    return out
+
+
 def summary(events: list[dict], audio: dict, failures: list[str], *, sentence: str | None = None) -> str:
     """The PASS/FAIL block printed at the end (no secrets: only timings, levels, the transcript)."""
     ready, heard = audio.get("ready_at"), audio.get("first_audible")
@@ -164,6 +188,8 @@ def summary(events: list[dict], audio: dict, failures: list[str], *, sentence: s
                      f"..{vad.get('ended_at')} s after 'Say it now', recording {vad.get('record_s')} s")
     ended = next((e for e in events if e.get("type") == "run_ended"), None)
     lines.append(f"  run_ended: {ended.get('reason') if ended else 'MISSING'}")
+    for w in lag_warnings(events, sentence=sentence):
+        lines.append(f"  WARN: {w}")
     for f in failures:
         lines.append(f"  FAIL: {f}")
     return "\n".join(lines)
@@ -226,9 +252,13 @@ async def main(a: argparse.Namespace) -> int:
     if frames_dir:
         frames_dir.mkdir(parents=True, exist_ok=True)
 
+    heard_pcm: list[tuple[float, bytes]] = []  # (bridge time, 24 kHz pcm) with --save-audio
+
     async def listen_audio(track):
         async for ev in rtc.AudioStream(track, sample_rate=24000, num_channels=1):
             s = np.frombuffer(ev.frame.data, dtype=np.int16)
+            if a.save_audio:
+                heard_pcm.append((time.monotonic() - t0, bytes(ev.frame.data)))
             lv = dbfs(s)
             r["peak"] = max(r["peak"], lv)
             if lv > AUDIBLE_DBFS:
@@ -358,7 +388,14 @@ async def main(a: argparse.Namespace) -> int:
         end = time.monotonic() + a.seconds
         while time.monotonic() < end:
             if any(e.get("type") == "run_ended" for e in read_events()):
-                await asyncio.sleep(3)  # let the closing line play
+                # Let the closing line play out: leave after 3.5 s of agent silence (at most 25 s).
+                give_up = time.monotonic() + 25
+                await asyncio.sleep(1.0)
+                while time.monotonic() < give_up:
+                    last = r["segments"][-1][1] if r["segments"] else 0.0
+                    if time.monotonic() - t0 - last > 3.5:
+                        break
+                    await asyncio.sleep(0.25)
                 break
             await asyncio.sleep(0.5)
 
@@ -373,6 +410,15 @@ async def main(a: argparse.Namespace) -> int:
     print("agent video:", r["video"], f"{r['frames']} frames", f"({r['saved']} saved to {frames_dir})" if frames_dir else "")
     print("first agent audio:", "NONE" if after is None else f"{after:.2f}s after bridge_ready (limit 10 s)")
     print(f"audible agent audio: {r['audible_s']:.1f}s, peak {r['peak']:.1f} dBFS")
+    if a.save_audio and heard_pcm:
+        import wave
+
+        with wave.open(a.save_audio, "wb") as w:  # the agent's audio as this bridge heard it
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(24000)
+            w.writeframes(b"".join(p for _, p in heard_pcm))
+        print(f"agent audio saved to {a.save_audio} (starts {heard_pcm[0][0]:.2f}s on this clock)")
     events = read_events()
     print("\n=== agent events (runs/live/events.jsonl)")
     for e in events:
@@ -415,6 +461,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="exit 0 only if audio worked both ways (implies --speak)")
     p.add_argument("--sentence", help="what the fake caller says (default: the sentence the agent asks for)")
     p.add_argument("--frames", help="save the agent's video frames here (PNG)")
+    p.add_argument("--save-audio", help="save the agent's audio as heard here to this WAV (24 kHz)")
     p.add_argument("--save-every", type=float, default=2.0, help="seconds between saved frames")
     return p.parse_args(argv)
 

@@ -132,6 +132,23 @@ def test_vad_failures(vad, needle):
     assert fc.check_run(ev, good_audio(), sentence=SENTENCE, expect_vad=False) == []
 
 
+def test_lag_warnings_flag_speech_behind_captions():
+    fc = fake_call()
+    ev = good_events()
+    on_time = ev[:2] + [{"t": 1.0, "type": "say", "text": "Hello"},
+                        {"t": 26.0, "type": "say", "text": f"Please repeat after me: {SENTENCE}"}] + ev[2:]
+    assert fc.lag_warnings(on_time) == []
+    late = ev[:2] + [{"t": 7.5, "type": "say", "text": "Hello"},
+                     {"t": 33.0, "type": "say", "text": f"Please repeat after me: {SENTENCE}"}] + ev[2:] + \
+        [{"t": 40.0, "type": "say", "text": "Goodbye"}]
+    w = fc.lag_warnings(late)
+    assert any("7.5s after the check began" in x for x in w)
+    assert any("2.0s AFTER 'Say it now'" in x for x in w)
+    assert any("1 spoken line(s) started after run_ended" in x for x in w)
+    out = fc.summary(late, good_audio(), [], sentence=SENTENCE)
+    assert out.startswith("PASS") and "WARN:" in out  # warnings never fail the run
+
+
 def test_read_events_tolerates_missing_and_bad_files(tmp_path):
     fc = fake_call()
     assert fc.read_events(tmp_path / "nope.jsonl") == []
