@@ -1,0 +1,289 @@
+"""The demo dashboard server: SSE tail, frame and audio endpoints.
+
+Uses aiohttp's own test client inside asyncio.run(), so no pytest plugin is needed.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import shutil
+from pathlib import Path
+
+from aiohttp.test_utils import TestClient, TestServer
+
+from tools import dashboard
+from tools.dashboard import make_app
+
+
+def run(coro):
+    return asyncio.run(coro)
+
+
+async def _client(runs: Path, baselines: Path | None = None) -> TestClient:
+    app = make_app(runs, baselines or runs / "baselines")
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    return client
+
+
+class SSE:
+    """Reads one Server-Sent Events response, event by event."""
+
+    def __init__(self, resp) -> None:
+        self.resp = resp
+        self.buf = ""
+
+    async def next(self, timeout: float = 3.0) -> tuple[str, str]:
+        async def read() -> tuple[str, str]:
+            while True:
+                if "\n\n" in self.buf:
+                    block, self.buf = self.buf.split("\n\n", 1)
+                    event, data = "message", []
+                    for line in block.split("\n"):
+                        if line.startswith("event: "):
+                            event = line[7:]
+                        elif line.startswith("data: "):
+                            data.append(line[6:])
+                    if not data:  # retry: / heartbeat comments
+                        continue
+                    return event, "\n".join(data)
+                chunk = await self.resp.content.readany()
+                if not chunk:
+                    raise EOFError
+                self.buf += chunk.decode()
+
+        return await asyncio.wait_for(read(), timeout)
+
+    async def until(self, event: str, timeout: float = 3.0) -> list[tuple[str, str]]:
+        seen = []
+        while True:
+            ev = await self.next(timeout)
+            seen.append(ev)
+            if ev[0] == event:
+                return seen
+
+
+def _write(path: Path, *events: dict) -> None:
+    with open(path, "a", encoding="utf-8") as fh:
+        for e in events:
+            fh.write(json.dumps(e) + "\n")
+
+
+def _live(tmp_path: Path) -> Path:
+    live = tmp_path / "live"
+    (live / "audio").mkdir(parents=True)
+    return live
+
+
+def test_sse_sends_existing_then_appended_lines(tmp_path):
+    live = _live(tmp_path)
+    _write(live / "events.jsonl", {"t": 0, "type": "run_started", "run_id": "r1"}, {"t": 1, "type": "step", "name": "greet"})
+
+    async def go():
+        client = await _client(tmp_path)
+        try:
+            resp = await client.get("/events")
+            assert resp.status == 200
+            assert resp.headers["Content-Type"].startswith("text/event-stream")
+            sse = SSE(resp)
+            first = await sse.until("caught_up")
+            assert first[0][0] == "reset" and json.loads(first[0][1]) == {"exists": True, "live": False}
+            data = [json.loads(d) for e, d in first if e == "message"]
+            assert [d["type"] for d in data] == ["run_started", "step"]
+
+            # A half-written line waits for its newline; a bad line is skipped.
+            with open(live / "events.jsonl", "a", encoding="utf-8") as fh:
+                fh.write("not json\n")
+                fh.write('{"t": 2, "type": "say", ')
+                fh.flush()
+                await asyncio.sleep(0.3)
+                fh.write('"text": "hi", "audio": null}\n')
+            ev, d = await sse.next()
+            assert ev == "message" and json.loads(d)["type"] == "say" and json.loads(d)["text"] == "hi"
+        finally:
+            await client.close()
+
+    run(go())
+
+
+def test_sse_survives_file_recreation(tmp_path):
+    live = _live(tmp_path)
+    _write(live / "events.jsonl", {"t": 0, "type": "run_started", "run_id": "old"}, {"t": 5, "type": "step", "name": "arms_hold"})
+
+    async def go():
+        client = await _client(tmp_path)
+        try:
+            sse = SSE(await client.get("/events"))
+            await sse.until("caught_up")
+            # A new run: EventSink deletes runs/live and starts a new, shorter file.
+            shutil.rmtree(live)
+            await asyncio.sleep(0.3)
+            (live / "audio").mkdir(parents=True)
+            _write(live / "events.jsonl", {"t": 0, "type": "run_started", "run_id": "new"})
+            seen = await sse.until("message")
+            resets = [json.loads(d) for e, d in seen if e == "reset"]
+            assert resets and all(r["live"] for r in resets)
+            assert json.loads(seen[-1][1])["run_id"] == "new"
+            _write(live / "events.jsonl", {"t": 1, "type": "step", "name": "greet"})
+            ev, d = await sse.next()
+            assert ev == "message" and json.loads(d)["name"] == "greet"
+        finally:
+            await client.close()
+
+    run(go())
+
+
+def test_sse_waits_for_a_file_that_does_not_exist_yet(tmp_path):
+    async def go():
+        client = await _client(tmp_path)
+        try:
+            sse = SSE(await client.get("/events"))
+            seen = await sse.until("caught_up")
+            assert json.loads(seen[0][1])["exists"] is False
+            live = _live(tmp_path)
+            _write(live / "events.jsonl", {"t": 0, "type": "run_started", "run_id": "r"})
+            seen = await sse.until("message")
+            assert ("reset", json.dumps({"exists": True, "live": True})) in seen
+            assert json.loads(seen[-1][1])["run_id"] == "r"
+        finally:
+            await client.close()
+
+    run(go())
+
+
+def test_sse_survives_truncation_in_place(tmp_path):
+    live = _live(tmp_path)
+    _write(live / "events.jsonl", *({"t": i, "type": "live", "step": "arms_hold", "metrics": {}} for i in range(20)))
+
+    async def go():
+        client = await _client(tmp_path)
+        try:
+            sse = SSE(await client.get("/events"))
+            await sse.until("caught_up")
+            (live / "events.jsonl").write_text(json.dumps({"t": 0, "type": "run_started", "run_id": "t"}) + "\n")
+            seen = await sse.until("message")
+            assert any(e == "reset" for e, _ in seen)
+            assert json.loads(seen[-1][1])["run_id"] == "t"
+        finally:
+            await client.close()
+
+    run(go())
+
+
+def test_audio_serves_wav_and_refuses_path_traversal(tmp_path):
+    live = _live(tmp_path)
+    (live / "audio" / "001.wav").write_bytes(b"RIFF....WAVEfmt ")
+    (live / "events.jsonl").write_text("")
+    (live / "secret.wav").write_bytes(b"outside audio/")
+    (tmp_path / "top.wav").write_bytes(b"outside live/")
+    (live / "audio" / "notes.txt").write_text("not audio")
+
+    async def go():
+        client = await _client(tmp_path)
+        try:
+            ok = await client.get("/audio/001.wav")
+            assert ok.status == 200 and await ok.read() == b"RIFF....WAVEfmt "
+            assert ok.headers["Content-Type"].startswith("audio/")
+            for bad in ("/audio/../secret.wav", "/audio/..%2Fsecret.wav", "/audio/%2E%2E%2Fsecret.wav",
+                        "/audio/..%2F..%2Ftop.wav", "/audio/notes.txt", "/audio/missing.wav",
+                        "/audio/%2Fetc%2Fpasswd", "/audio/..%2F", "/audio/.wav", "/audio/%00.wav"):
+                r = await client.get(bad)
+                assert r.status == 404, bad
+                assert b"outside" not in await r.read(), bad
+        finally:
+            await client.close()
+
+    run(go())
+
+
+def test_audio_refuses_symlink_out_of_audio(tmp_path):
+    live = _live(tmp_path)
+    (tmp_path / "private.wav").write_bytes(b"outside")
+    (live / "audio" / "002.wav").symlink_to(tmp_path / "private.wav")
+
+    async def go():
+        client = await _client(tmp_path)
+        try:
+            r = await client.get("/audio/002.wav")
+            assert r.status == 404
+        finally:
+            await client.close()
+
+    run(go())
+
+
+def test_frame_is_never_cached(tmp_path):
+    live = _live(tmp_path)
+
+    async def go():
+        client = await _client(tmp_path)
+        try:
+            missing = await client.get("/frame.jpg")
+            assert missing.status == 404
+            assert "no-store" in missing.headers["Cache-Control"]
+            (live / "frame.jpg").write_bytes(b"\xff\xd8 first")
+            r = await client.get("/frame.jpg")
+            assert r.status == 200 and r.headers["Content-Type"] == "image/jpeg"
+            assert "no-store" in r.headers["Cache-Control"] and "no-cache" in r.headers["Cache-Control"]
+            assert float(r.headers["X-Frame-Age"]) >= 0
+            assert await r.read() == b"\xff\xd8 first"
+            (live / "frame.jpg").write_bytes(b"\xff\xd8 second")
+            r2 = await client.get("/frame.jpg")
+            assert await r2.read() == b"\xff\xd8 second"
+        finally:
+            await client.close()
+
+    run(go())
+
+
+def test_page_config_and_baseline(tmp_path):
+    from onset.decide import save_baseline
+    from onset.types import Baseline
+
+    bdir = tmp_path / "baselines"
+    save_baseline(Baseline("p1", "2026-11-10T10:00:00+00:00", 0.05, 0.02, 0.0, 140.0, "The sky is blue."), base_dir=bdir)
+
+    async def go():
+        client = await _client(tmp_path, bdir)
+        try:
+            page = await client.get("/")
+            assert page.status == 200 and "Click to enable sound" in await page.text()
+            cfg = await (await client.get("/config")).json()
+            assert cfg["thresholds"]["face_asymmetry_increase"] > 0
+            b = await client.get("/baseline/p1")
+            assert b.status == 200
+            body = await b.json()
+            assert body["face_asymmetry"] == 0.05 and "sentence" not in body and "patient_id" not in body
+            assert (await client.get("/baseline/nobody")).status == 404
+            assert (await client.get("/baseline/..%2Fp1")).status == 404
+        finally:
+            await client.close()
+
+    run(go())
+
+
+def test_server_binds_localhost_only():
+    import inspect
+
+    src = inspect.getsource(dashboard.main)
+    assert 'host="127.0.0.1"' in src
+
+
+def test_demo_events_writes_a_full_run(tmp_path):
+    from tools import demo_events
+
+    run_ = demo_events.Run("escalate", tmp_path, speed=200.0, caregiver="dry_run")
+    try:
+        run_.play(hold_end=0.0)
+    finally:
+        run_.close(keep_archive=False)
+    lines = [json.loads(x) for x in (tmp_path / "live" / "events.jsonl").read_text().splitlines()]
+    types = {e["type"] for e in lines}
+    assert {"run_started", "step", "say", "live", "result", "decision", "caregiver", "run_ended"} <= types
+    decision = next(e for e in lines if e["type"] == "decision")
+    assert decision["outcome"] == "escalate" and decision["reasons"]
+    says = [e for e in lines if e["type"] == "say"]
+    assert all((tmp_path / "live" / e["audio"]).is_file() for e in says)
+    assert (tmp_path / "live" / "frame.jpg").is_file()
+    assert not (tmp_path / run_.run_id).exists()
