@@ -69,3 +69,17 @@ Times are cumulative. **VO** is the voice-over, which is also the subtitle text.
 
 "Detects strokes", "diagnoses", "accurate", any percentage for sensitivity or accuracy, and
 "you're fine" except when saying Onset never says it.
+
+## Cards to screen-record
+
+`web/video/index.html` (serve `web/` with `python3 -m http.server 8771 --directory web`, open
+`http://localhost:8771/video/index.html?rec`, full screen, record at 1920x1080):
+
+- `#title` shot 1: "Onset", the tagline and "Research prototype · not a medical device".
+- `#lower-1` … `#lower-7` lower thirds: Call 1, Call 2 (alert), Smile, Arms, Speech, Replay,
+  "Shown as a dry run". Add `&bg=green` to key them over footage.
+- `#subs&text=…` the burned-in subtitle style (white on a dark band, `<b>` marks a word).
+- `#end` shot 11's end card; it holds, so keep it on screen for at least 3 seconds.
+
+Space replays a card's entrance; `←` `→` step through them. `web/pitch/index.html#slide-12`
+and `#slide-13` are slides 5 and 6 of this plan (safety, limits).
