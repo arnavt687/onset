@@ -50,13 +50,14 @@ class Thresholds:
     A value exactly at its threshold counts as a change.
     """
 
-    # Smile: asymmetry (mouth-corner lift difference / eye distance) above baseline.
-    face_asymmetry_increase: float = 0.05
+    # Smile: asymmetry index above baseline. face.py defines it as
+    # 1 - weaker_lift / stronger_lift (0 = symmetric, 1 = one side did not move).
+    face_asymmetry_increase: float = 0.10
     # Arms: |left - right| wrist drift (shoulder widths over the hold) above baseline.
     arm_drift_difference_increase: float = 0.06
     # Arms: both arms must have been up at least this long for the check to count.
     arm_min_hold_s: float = 8.0
-    # Sentence: word error rate above baseline (0..1).
+    # Sentence: word error rate above baseline (0 = exact; can exceed 1 with extra words).
     speech_wer_increase: float = 0.15
     # Sentence: speaking rate this fraction or more below baseline words per minute.
     speech_rate_drop_fraction: float = 0.20
@@ -356,7 +357,8 @@ def decide(
     """Compare one check-in with the person's baseline. Rules only.
 
     ESCALATE if any measurement moved past its threshold; otherwise UNCLEAR if any step's
-    quality is not OK, a value is missing, or there is no (valid) baseline; otherwise
+    quality is not OK, a value (including the longest pause) is missing, the arms were not
+    up for `arm_min_hold_s`, or there is no (valid) baseline; otherwise
     NO_CHANGE_DETECTED. No baseline, or any unclear step, is never NO_CHANGE_DETECTED.
     `reasons` lists every change first, then every unclear item.
     """

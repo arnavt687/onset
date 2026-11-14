@@ -94,6 +94,7 @@ CASES = [
     ("pause at threshold", dict(pause=T.speech_longest_pause_s), B, Outcome.ESCALATE, ["long pause"]),
     ("pause just below", dict(pause=T.speech_longest_pause_s - 0.01), B, Outcome.NO_CHANGE_DETECTED, []),
     ("pause missing", dict(pause=None), B, Outcome.UNCLEAR, ["pauses"]),
+    ("wer above 1 (extra words)", dict(wer=1.4), B, Outcome.ESCALATE, ["less clearly"]),
     ("other sentence still compared", dict(sentence="A different sentence", wer=0.5), B, Outcome.ESCALATE, ["less clearly"]),
     # missing or broken numbers with quality OK
     ("asymmetry missing", dict(asym=None), B, Outcome.UNCLEAR, ["smile check did not give"]),
