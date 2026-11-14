@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Onset Live Check-in</title>
+<!-- No external fonts, scripts or CDNs: the venue network may be down. -->
+<style>
+:root {
+  --bg: #070b16;
+  --stage: #0b1122;
+  --panel: #121a2f;
+  --panel-2: #18213a;
+  --line: #27324f;
+  --text: #f1f4fb;
+  --muted: #9aa6c3;
+  --dim: #5f6b88;
+  --red: #f05252;
+  --red-bg: #3d1016;
+  --amber: #f6a623;
+  --amber-bg: #3b2a07;
+  --neutral: #cfd6e4;
+  --neutral-bg: #222c44;
+  --blue: #5aa2ff;
+  --blue-bg: #14294d;
+  --ok: #b4c0d8;
+  --imsg: #0a84ff;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; overflow: hidden; }
+body { display: flex; align-items: center; justify-content: center; }
+
+/* A fixed 16:9 stage, scaled to the window; every size is in cqw (1% of the stage width). */
+#stage { width: min(100vw, calc(100vh * 16 / 9)); height: min(100vh, calc(100vw * 9 / 16));
+  container-type: size; background: var(--stage); display: grid;
+  grid-template-rows: auto 1fr auto; padding: 0.9cqw 1.1cqw 0.5cqw; gap: 0.8cqw; position: relative; }
+
+/* ---------------------------------------------------------------- header + timeline */
+header { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 1.6cqw; }
+.brand { display: flex; align-items: baseline; gap: 0.8cqw; }
+.brand b { font-size: 2.3cqw; letter-spacing: 0.02em; }
+.brand span { font-size: 1.05cqw; color: var(--muted); }
+.timeline { display: flex; align-items: center; justify-content: center; gap: 0; }
+.tstep { display: flex; align-items: center; gap: 0.5cqw; font-size: 1.15cqw; color: var(--dim); white-space: nowrap; }
+.tstep .dot { width: 1.5cqw; height: 1.5cqw; border-radius: 50%; border: 0.18cqw solid var(--dim);
+  display: grid; place-items: center; font-size: 0.8cqw; font-weight: 700; }
+.tbar { width: 3.2cqw; height: 0.18cqw; background: var(--line); margin: 0 0.6cqw; }
+.tstep.done { color: var(--muted); }
+.tstep.done .dot { background: var(--muted); border-color: var(--muted); color: var(--stage); }
+.tstep.active { color: var(--text); font-weight: 700; }
+.tstep.active .dot { border-color: var(--blue); background: var(--blue); box-shadow: 0 0 0 0.4cqw rgba(90,162,255,.25); }
+.tbar.done { background: var(--muted); }
+.right { display: flex; align-items: center; gap: 1.2cqw; font-size: 1cqw; color: var(--muted); }
+.conn { display: flex; align-items: center; gap: 0.4cqw; }
+.conn i { width: 0.8cqw; height: 0.8cqw; border-radius: 50%; background: var(--dim); display: inline-block; }
+.conn.live i { background: var(--blue); }
+.conn.down i { background: var(--amber); }
+.toggle { display: flex; align-items: center; gap: 0.5cqw; cursor: pointer; user-select: none; color: var(--text); }
+.toggle input { display: none; }
+.toggle .sw { width: 2.6cqw; height: 1.4cqw; border-radius: 1cqw; background: var(--line); position: relative; transition: background .2s; }
+.toggle .sw::after { content: ""; position: absolute; top: 0.2cqw; left: 0.2cqw; width: 1cqw; height: 1cqw; border-radius: 50%; background: var(--text); transition: left .2s; }
+.toggle input:checked + .sw { background: var(--blue); }
+.toggle input:checked + .sw::after { left: 1.4cqw; }
+.badge { font-size: 0.85cqw; padding: 0.15cqw 0.6cqw; border-radius: 1cqw; border: 0.1cqw solid var(--line); color: var(--muted); }
+.badge.synthetic { border-color: var(--amber); color: var(--amber); }
+
+/* ---------------------------------------------------------------- the four panels */
+/* Video over decision on the left, the meters in the middle, the caregiver's phone on the right. */
+main { display: grid; grid-template-columns: 1.12fr 1fr 0.6fr; grid-template-rows: 1.2fr 0.8fr; gap: 0.8cqw; min-height: 0; }
+#video { grid-column: 1; grid-row: 1; }
+#decision { grid-column: 1; grid-row: 2; }
+#meters { grid-column: 2; grid-row: 1 / 3; }
+#caregiver { grid-column: 3; grid-row: 1 / 3; }
+.panel { background: var(--panel); border: 0.1cqw solid var(--line); border-radius: 0.9cqw; padding: 0.9cqw 1.1cqw;
+  min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.panel h2 { margin: 0 0 0.6cqw; font-size: 0.95cqw; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); font-weight: 600;
+  display: flex; justify-content: space-between; align-items: center; }
+
+/* (a) video */
+#video { padding: 0.7cqw; }
+.vwrap { position: relative; flex: 1; min-height: 0; background: #000; border-radius: 0.6cqw; overflow: hidden; display: grid; place-items: center; }
+.vwrap img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: none; }
+.vwrap .placeholder { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--dim); font-size: 1.5cqw; padding: 2cqw; }
+.vwrap.stale img { opacity: 0.45; filter: grayscale(0.6); }
+.vtag { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; text-transform: uppercase; font-weight: 700; letter-spacing: 0.08em; font-size: 1.3cqw; padding: 0.2cqw 0.6cqw; border-radius: 0.4cqw; background: rgba(0,0,0,.6); color: var(--muted); }
+.vwrap.stale .vtag { display: block; }
+.count { position: absolute; top: 0.6cqw; right: 0.6cqw; font-size: 2.6cqw; font-weight: 800; min-width: 5cqw; text-align: center;
+  padding: 0.1cqw 0.8cqw; border-radius: 0.6cqw; background: rgba(0,0,0,.65); font-variant-numeric: tabular-nums; }
+.caption { margin-top: 0.6cqw; font-size: 2.15cqw; line-height: 1.2; font-weight: 700; min-height: 2.6cqw; }
+.said { margin-top: 0.3cqw; font-size: 1.05cqw; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.said b { color: var(--text); font-weight: 600; }
+
+/* (b) meters */
+#meters { gap: 0.6cqw; }
+.check { background: var(--panel-2); border-radius: 0.7cqw; padding: 0.6cqw 0.9cqw; border: 0.12cqw solid transparent; flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+.check.st-changed { border-color: var(--red); }
+.check.st-unclear { border-color: var(--amber); }
+.check.st-measuring { border-color: var(--blue); }
+.chead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35cqw; }
+.chead .name { font-size: 1.65cqw; font-weight: 700; }
+.chead .name small { font-size: 0.95cqw; color: var(--muted); font-weight: 400; margin-left: 0.5cqw; }
+.chip { font-size: 0.95cqw; font-weight: 700; padding: 0.15cqw 0.8cqw; border-radius: 1cqw; text-transform: uppercase; letter-spacing: 0.06em; }
+.chip.waiting { background: transparent; color: var(--dim); border: 0.1cqw solid var(--line); }
+.chip.measuring { background: var(--blue-bg); color: var(--blue); animation: pulse 1.2s ease-in-out infinite; }
+.chip.ok { background: var(--neutral-bg); color: var(--ok); }
+.chip.changed { background: var(--red); color: #fff; }
+.chip.unclear { background: var(--amber); color: #1d1300; }
+@keyframes pulse { 50% { opacity: 0.55; } }
+.rows { display: grid; grid-template-columns: 7.4cqw 1fr 10.2cqw; align-items: center; column-gap: 0.7cqw; row-gap: 0.6cqw; font-size: 1.15cqw; }
+.rows .lbl { color: var(--muted); white-space: nowrap; }
+.rows .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.35cqw; white-space: nowrap; }
+.rows .val small { font-size: 0.85cqw; color: var(--muted); font-weight: 400; margin-left: 0.4cqw; }
+.legend { display: flex; gap: 1.2cqw; font-size: 0.85cqw; color: var(--muted); justify-content: flex-end; margin: -0.2cqw 0 -0.1cqw; }
+.legend i { display: inline-block; width: 0.22cqw; height: 0.9cqw; vertical-align: middle; margin-right: 0.35cqw; background: var(--text); }
+.legend i.chg { background: var(--red); }
+.rows .val.bad { color: var(--red); }
+.rows .val.warn { color: var(--amber); }
+.gauge { position: relative; height: 1.4cqw; background: #0c1324; border-radius: 0.6cqw; overflow: visible; }
+.gauge .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0.6cqw; background: var(--ok); transition: width .2s linear; }
+.gauge.live .fill { background: var(--blue); }
+.gauge.bad .fill { background: var(--red); }
+.gauge.warn .fill { background: var(--amber); }
+.gauge .tick { position: absolute; top: -0.3cqw; bottom: -0.3cqw; width: 0.22cqw; margin-left: -0.11cqw; background: var(--text); border-radius: 0.1cqw; }
+.gauge .tick.chg { background: var(--red); opacity: 0.9; }
+.transcript { font-size: 1.3cqw; line-height: 1.3; margin: 0.1cqw 0 0.35cqw; color: var(--text); min-height: 1.5cqw; }
+.transcript .exp { color: var(--dim); font-size: 0.9cqw; display: block; }
+.note { font-size: 0.9cqw; color: var(--muted); margin-top: 0.25cqw; }
+.note.bad { color: var(--red); } .note.warn { color: var(--amber); }
+
+/* (c) decision */
+#decision { justify-content: flex-start; }
+.outcome { border-radius: 0.8cqw; padding: 0.7cqw 1.1cqw; font-size: 2.5cqw; font-weight: 800; line-height: 1.1; background: var(--neutral-bg); color: var(--neutral); }
+.outcome.pending { background: transparent; border: 0.12cqw dashed var(--line); color: var(--dim); font-size: 2cqw; font-weight: 600; }
+.outcome.escalate { background: var(--red); color: #fff; }
+.outcome.unclear { background: var(--amber); color: #1d1300; }
+.outcome.neutral { background: var(--neutral-bg); color: var(--neutral); }
+.outcome small { display: block; font-size: 1.05cqw; font-weight: 500; margin-top: 0.35cqw; opacity: 0.92; }
+.reasons { margin: 0.55cqw 0 0; padding-left: 1.4cqw; font-size: 1.22cqw; line-height: 1.3; overflow: hidden; columns: 2; column-gap: 2cqw; }
+.reasons.one { columns: 1; }
+.reasons li { margin-bottom: 0.15cqw; break-inside: avoid; }
+.dmeta { font-size: 0.9cqw; color: var(--muted); text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+/* (d) caregiver phone */
+#caregiver { gap: 0.8cqw; }
+.cg-side { display: flex; flex-direction: column; gap: 0.4cqw; font-size: 1.05cqw; color: var(--muted); }
+.cg-side h2 { margin-bottom: 0; }
+.cg-status { font-size: 1.5cqw; font-weight: 800; color: var(--text); }
+.cg-status.dry { color: var(--neutral); }
+.cg-status.sent { color: var(--blue); }
+.cg-status.failed { color: var(--red); }
+.cg-detail { font-size: 0.95cqw; color: var(--muted); word-break: break-word; }
+.phone { flex: 1; min-height: 0; background: #000; border-radius: 1.8cqw; border: 0.35cqw solid #2b3550; padding: 0.8cqw 0.8cqw; display: flex; flex-direction: column; min-width: 0; }
+.phone .ph-top { text-align: center; font-size: 0.85cqw; color: #8e8e93; border-bottom: 0.08cqw solid #222; padding-bottom: 0.35cqw; }
+.phone .ph-top b { display: block; color: #fff; font-size: 1cqw; }
+.phone .msgs { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; padding-top: 0.4cqw; min-height: 0; overflow: hidden; }
+.bubble { align-self: flex-end; max-width: 96%; background: var(--imsg); color: #fff; border-radius: 1.1cqw 1.1cqw 0.3cqw 1.1cqw; padding: 0.6cqw 0.85cqw; font-size: 1.12cqw; line-height: 1.3; white-space: pre-wrap; }
+.bubble.dry { background: #3a3a3c; border: 0.12cqw dashed #8e8e93; }
+.bubble.failed { background: #3a3a3c; }
+.receipt { align-self: flex-end; font-size: 0.8cqw; color: #8e8e93; margin-top: 0.2cqw; }
+.receipt.failed { color: var(--red); font-weight: 700; }
+.phone .empty { color: #636366; font-size: 1cqw; text-align: center; margin: auto 0; }
+
+footer { text-align: center; font-size: 0.95cqw; color: var(--dim); letter-spacing: 0.04em; }
+
+/* ---------------------------------------------------------------- sound overlay */
+#unlock { position: absolute; inset: 0; background: rgba(4,7,15,.72); display: none; place-items: center; z-index: 10; cursor: pointer; }
+#unlock.show { display: grid; }
+#unlock .card { background: var(--panel); border: 0.15cqw solid var(--blue); border-radius: 1.2cqw; padding: 2cqw 3cqw; text-align: center; }
+#unlock .card b { display: block; font-size: 2.6cqw; margin-bottom: 0.6cqw; }
+#unlock .card span { font-size: 1.2cqw; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <header>
+    <div class="brand"><b>Onset</b><span>FaceTime stroke check-in</span></div>
+    <div class="timeline" id="timeline"></div>
+    <div class="right">
+      <span class="badge" id="runbadge">no call yet</span>
+      <span id="dtime" style="font-variant-numeric: tabular-nums"></span>
+      <span class="conn" id="conn"><i></i><span>connecting</span></span>
+      <label class="toggle" title="Callers cannot hear the agent over FaceTime yet, so the laptop speaks its lines.">
+        <input type="checkbox" id="voice" checked><span class="sw"></span><span>Play agent voice in the room</span>
+      </label>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel" id="video">
+      <div class="vwrap" id="vwrap">
+        <img id="frame" alt="The agent's video, as the caller sees it">
+        <div class="placeholder" id="vph">Waiting for the agent's video.<br>Call the line on FaceTime to start.</div>
+        <span class="vtag" id="vtag">video paused</span>
+        <span class="count" id="count" hidden></span>
+      </div>
+      <div class="caption" id="caption"></div>
+      <div class="said" id="said"></div>
+    </section>
+
+    <section class="panel" id="meters">
+      <div class="legend"><span><i></i>this person's usual</span><span><i class="chg"></i>counts as a change</span></div>
+      <div class="check" id="c-face"></div>
+      <div class="check" id="c-arms"></div>
+      <div class="check" id="c-speech"></div>
+    </section>
+
+    <section class="panel" id="decision">
+      <h2><span>Decision</span><span class="dmeta" id="dmeta"></span></h2>
+      <div class="outcome pending" id="outcome">Waiting for a call</div>
+      <ul class="reasons" id="reasons"></ul>
+    </section>
+
+    <section class="panel" id="caregiver">
+      <div class="cg-side">
+        <h2><span>Caregiver iMessage</span></h2>
+        <div class="cg-status" id="cgstatus">Not texted</div>
+        <div class="cg-detail" id="cgdetail">A text goes to the caregiver only if a change is noticed or the check is unclear.</div>
+      </div>
+      <div class="phone">
+        <div class="ph-top"><b>Caregiver</b>iMessage from the Onset line</div>
+        <div class="msgs" id="msgs"><div class="empty">No message</div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>Research prototype · not a medical device · never says you're fine</footer>
+
+  <div id="unlock"><div class="card"><b>Click to enable sound</b><span>The laptop plays the agent's voice in the room.<br>Browsers need one click before they can play audio.</span></div></div>
+</div>
+
+<script>
+"use strict";
+// ------------------------------------------------------------------ constants
+const STEPS = [
+  { key: "greet", label: "Greet", names: ["greet"] },
+  { key: "face", label: "Face", names: ["face_neutral", "face_smile"] },
+  { key: "arms", label: "Arms", names: ["arms_wait", "arms_hold"] },
+  { key: "sentence", label: "Sentence", names: ["sentence"] },
+  { key: "result", label: "Result", names: ["deciding", "closing", "baseline_saved"] },
+];
+const STEP_INDEX = {};
+STEPS.forEach((s, i) => s.names.forEach(n => STEP_INDEX[n] = i));
+// Same defaults as onset/decide.py; replaced by /config when the server can read them.
+let TH = { face_asymmetry_increase: 0.10, arm_drift_difference_increase: 0.06, arm_min_hold_s: 8.0,
+           speech_wer_increase: 0.15, speech_rate_drop_fraction: 0.20, speech_longest_pause_s: 1.5 };
+const ARMS_HOLD_DEFAULT = 10;
+
+// ------------------------------------------------------------------ state
+let S;
+function fresh() {
+  return { runId: null, source: null, patientId: null, hasBaseline: null, sentence: "", baseline: null,
+           step: null, caption: "", stepSeconds: null, stepAt: 0, stepT: 0, maxT: 0, maxTAt: 0,
+           face: { live: {}, result: null }, arms: { live: {}, result: null, holdSeconds: ARMS_HOLD_DEFAULT },
+           speech: { result: null }, decision: null, caregiver: null, ended: null, baselineSaved: false,
+           lastSay: "", reached: -1 };
+}
+S = fresh();
+let caughtUp = false;
+const played = new Set();
+
+// ------------------------------------------------------------------ helpers
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const num = v => (typeof v === "number" && isFinite(v)) ? v : null;
+const f2 = v => num(v) === null ? "–" : v.toFixed(2);
+const pct = v => num(v) === null ? "–" : Math.round(v * 100) + "%";
+function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function stepIdx() { return S.step in STEP_INDEX ? STEP_INDEX[S.step] : -1; }
+function nowT() { return S.maxT + (performance.now() - S.maxTAt) / 1000; }
+
+// ------------------------------------------------------------------ event handling
+function apply(ev, live) {
+  const t = num(ev.t) ?? S.maxT;
+  if (t >= S.maxT) { S.maxT = t; S.maxTAt = performance.now(); }
+  switch (ev.type) {
+    case "run_started":
+      if (S.runId && S.runId !== ev.run_id) S = fresh();
+      S.runId = ev.run_id; S.source = ev.source; S.patientId = ev.patient_id;
+      S.hasBaseline = !!ev.has_baseline; S.sentence = ev.sentence || "";
+      S.maxT = t; S.maxTAt = performance.now();
+      if (ev.baseline && typeof ev.baseline === "object") S.baseline = ev.baseline;
+      else if (ev.has_baseline && ev.patient_id) fetchBaseline(ev.run_id, ev.patient_id);
+      break;
+    case "step":
+      S.step = ev.name; S.caption = ev.caption || ""; S.stepSeconds = num(ev.seconds);
+      S.stepT = t; S.stepAt = performance.now() - (S.maxT - t) * 1000;
+      if (ev.name === "arms_hold" && num(ev.seconds)) S.arms.holdSeconds = ev.seconds;
+      if (ev.name === "baseline_saved") S.baselineSaved = true;
+      S.reached = Math.max(S.reached, stepIdx());
+      break;
+    case "say":
+      S.lastSay = ev.text || "";
+      if (live) speak(ev);
+      break;
+    case "live": {
+      const m = ev.metrics || {};
+      if (String(ev.step).startsWith("face")) Object.assign(S.face.live, m);
+      else if (String(ev.step).startsWith("arms")) Object.assign(S.arms.live, m);
+      break;
+    }
+    case "result":
+      if (S[ev.check]) S[ev.check].result = { quality: ev.quality, ...(ev.data || {}) };
+      break;
+    case "decision": S.decision = ev; break;
+    case "caregiver": S.caregiver = ev; break;
+    case "run_ended": if (!S.ended) S.ended = ev; break;
+  }
+}
+
+async function fetchBaseline(runId, pid) {
+  try {
+    const r = await fetch("/baseline/" + encodeURIComponent(pid), { cache: "no-store" });
+    if (r.ok && S.runId === runId && !S.baseline) { S.baseline = await r.json(); render(); }
+  } catch (e) {}
+}
+
+// ------------------------------------------------------------------ status per check
+// Mirrors onset/decide.py so each meter can say "changed" as soon as its result lands.
+function faceStatus() {
+  const r = S.face.result, b = S.baseline, i = stepIdx();
+  if (!r) return S.ended ? (S.reached >= 1 ? "unclear" : "waiting") : i === 1 ? "measuring" : (S.reached > 1 ? "unclear" : "waiting");
+  if (r.quality !== "ok" || num(r.asymmetry) === null) return "unclear";
+  if (b && num(b.face_asymmetry) !== null && r.asymmetry - b.face_asymmetry >= TH.face_asymmetry_increase - 1e-9) return "changed";
+  return "ok";
+}
+function armsStatus() {
+  const r = S.arms.result, b = S.baseline, i = stepIdx();
+  if (!r) return S.ended ? (S.reached >= 2 ? "unclear" : "waiting") : i === 2 ? "measuring" : (S.reached > 2 ? "unclear" : "waiting");
+  if (r.quality !== "ok" || num(r.drift_difference) === null) return "unclear";
+  if (b && num(b.arm_drift_difference) !== null && r.drift_difference - b.arm_drift_difference >= TH.arm_drift_difference_increase - 1e-9) return "changed";
+  if (!(num(r.hold_seconds) !== null && r.hold_seconds >= TH.arm_min_hold_s - 1e-9)) return "unclear";
+  return "ok";
+}
+function speechFlags() {
+  const r = S.speech.result, b = S.baseline, f = { wer: false, wpm: false, pause: false };
+  if (!r || r.quality !== "ok") return f;
+  if (b && num(r.word_error_rate) !== null && num(b.speech_word_error_rate) !== null)
+    f.wer = r.word_error_rate - b.speech_word_error_rate >= TH.speech_wer_increase - 1e-9;
+  if (b && num(r.words_per_minute) !== null && num(b.speech_words_per_minute) !== null)
+    f.wpm = r.words_per_minute <= b.speech_words_per_minute * (1 - TH.speech_rate_drop_fraction) + 1e-9;
+  if (num(r.longest_pause_s) !== null) f.pause = r.longest_pause_s >= TH.speech_longest_pause_s - 1e-9;
+  return f;
+}
+function speechStatus() {
+  const r = S.speech.result, i = stepIdx();
+  if (!r) return i === 3 || S.step === "deciding" ? "measuring" : (S.ended && S.reached >= 3 ? "unclear" : "waiting");
+  if (r.quality !== "ok" || num(r.word_error_rate) === null || num(r.words_per_minute) === null) return "unclear";
+  const f = speechFlags();
+  if (f.wer || f.wpm || f.pause) return "changed";
+  if (num(r.longest_pause_s) === null) return "unclear";
+  return "ok";
+}
+const CHIP = { waiting: "waiting", measuring: "measuring", ok: "OK", changed: "changed", unclear: "unclear" };
+const QUALITY = { ok: "measured clearly", no_subject: "not in view", partial: "only partly in view", too_dark: "too dark",
+                  motion: "too much movement", no_response: "step not done", error: "could not be completed" };
+
+// ------------------------------------------------------------------ rendering pieces
+function gauge(value, max, opts = {}) {
+  const v = num(value);
+  const w = v === null ? 0 : Math.max(0, Math.min(1, v / max)) * 100;
+  let ticks = "";
+  if (num(opts.usual) !== null) ticks += `<div class="tick" title="usual" style="left:${Math.min(100, opts.usual / max * 100)}%"></div>`;
+  if (num(opts.change) !== null && opts.change <= max) ticks += `<div class="tick chg" title="${esc(opts.changeLabel || "change")}" style="left:${Math.min(100, opts.change / max * 100)}%"></div>`;
+  return `<div class="gauge ${opts.cls || ""}"><div class="fill" style="width:${w}%"></div>${ticks}</div>`;
+}
+function row(label, gaugeHtml, valHtml, cls = "") {
+  return `<div class="lbl">${esc(label)}</div>${gaugeHtml}<div class="val ${cls}">${valHtml}</div>`;
+}
+function head(name, sub, st) {
+  return `<div class="chead"><div class="name">${esc(name)}<small>${esc(sub)}</small></div><span class="chip ${st}">${CHIP[st]}</span></div>`;
+}
+function usualTxt(v, fmt = f2) { return num(v) === null ? "" : `<small>usual ${fmt(v)}</small>`; }
+const wpmFmt = v => String(Math.round(v));
+function qualityNote(r, st) {
+  if (!r) return "";
+  if (r.quality !== "ok") return `<div class="note warn">Not measured clearly: ${esc(QUALITY[r.quality] || r.quality)}${r.detail && r.detail.reason ? " (" + esc(r.detail.reason) + ")" : ""}</div>`;
+  return "";
+}
+
+function renderFace() {
+  const st = faceStatus(), r = S.face.result, L = S.face.live, b = S.baseline;
+  const live = !r;
+  const ll = live ? L.lift_left : (r.detail ? r.detail.lift_left : null);
+  const lr = live ? L.lift_right : (r.detail ? r.detail.lift_right : null);
+  const asym = live ? L.asym : r.asymmetry;
+  const usual = b ? b.face_asymmetry : null;
+  const chg = num(usual) !== null ? usual + TH.face_asymmetry_increase : null;
+  const bad = st === "changed";
+  const sub = live ? (S.step === "face_neutral" ? "relaxed face" : S.step === "face_smile" ? "big smile" : "smile check")
+                   : (bad && r.weaker_side ? `${r.weaker_side} side lifts less than usual` : "smile check");
+  let h = head("Face", sub, st) + `<div class="rows">`;
+  h += row("Left lift", gauge(ll, 0.3, { cls: live ? "live" : "" }), f2(ll));
+  h += row("Right lift", gauge(lr, 0.3, { cls: live ? "live" : "" }), f2(lr));
+  h += row("Asymmetry", gauge(asym, 1, { usual, change: chg, cls: bad ? "bad" : live ? "live" : "" }), f2(asym) + usualTxt(usual), bad ? "bad" : "");
+  h += `</div>` + qualityNote(r, st);
+  return [st, h];
+}
+
+function renderArms() {
+  const st = armsStatus(), r = S.arms.result, L = S.arms.live, b = S.baseline;
+  const live = !r;
+  const dl = live ? L.left_drift : r.left_drift, dr = live ? L.right_drift : r.right_drift;
+  const diff = live ? (num(dl) !== null && num(dr) !== null ? Math.abs(dl - dr) : null) : r.drift_difference;
+  const usual = b ? b.arm_drift_difference : null;
+  const chg = num(usual) !== null ? usual + TH.arm_drift_difference_increase : null;
+  const bad = st === "changed";
+  const hold = S.arms.holdSeconds || ARMS_HOLD_DEFAULT;
+  let holdVal, holdFill;
+  if (live) {
+    const el = num(L.hold_elapsed) ?? (S.step === "arms_hold" ? Math.min(hold, nowT() - S.stepT) : 0);
+    holdFill = el; holdVal = S.step === "arms_hold" || el > 0 ? `${Math.max(0, hold - el).toFixed(1)} s left` : (L.arms_up ? "arms up" : "–");
+  } else { holdFill = num(r.hold_seconds) ?? 0; holdVal = `${(num(r.hold_seconds) ?? 0).toFixed(1)} s held`; }
+  const holdWarn = !live && num(r.hold_seconds) !== null && r.hold_seconds < TH.arm_min_hold_s;
+  const sub = live ? (S.step === "arms_wait" ? "waiting for both arms up" : S.step === "arms_hold" ? "hold both arms up" : "arm hold")
+                   : (bad && r.weaker_side ? `${r.weaker_side} arm drifts more than usual` : "arm hold");
+  let h = head("Arms", sub, st) + `<div class="rows">`;
+  h += row("Left drift", gauge(Math.max(0, dl ?? 0), 0.3, { cls: live ? "live" : "" }), f2(dl));
+  h += row("Right drift", gauge(Math.max(0, dr ?? 0), 0.3, { cls: live ? "live" : "" }), f2(dr));
+  h += row("Difference", gauge(diff, 0.3, { usual, change: chg, cls: bad ? "bad" : live ? "live" : "" }), f2(diff) + usualTxt(usual), bad ? "bad" : "");
+  h += row("Hold", gauge(holdFill, hold, { cls: holdWarn ? "warn" : live ? "live" : "" }), esc(holdVal), holdWarn ? "warn" : "");
+  h += `</div>` + qualityNote(r, st);
+  return [st, h];
+}
+
+function renderSpeech() {
+  const st = speechStatus(), r = S.speech.result, b = S.baseline, f = speechFlags();
+  let tr;
+  if (r && r.transcript) tr = `“${esc(r.transcript)}”`;
+  else if (r) tr = `<span style="color:var(--dim)">(nothing heard)</span>`;
+  else if (st === "measuring") tr = S.step === "deciding" ? `<span style="color:var(--blue)">Transcribing…</span>` : `<span style="color:var(--blue)">Listening…</span>`;
+  else tr = `<span style="color:var(--dim)">–</span>`;
+  const exp = S.sentence ? `<span class="exp">expected: “${esc(S.sentence)}”</span>` : "";
+  const wer = r ? r.word_error_rate : null, wpm = r ? r.words_per_minute : null, pause = r ? r.longest_pause_s : null;
+  const uWer = b ? b.speech_word_error_rate : null, uWpm = b ? b.speech_words_per_minute : null;
+  let h = head("Speech", "repeat the sentence", st) + `<div class="transcript">${tr}${exp}</div><div class="rows">`;
+  h += row("Word errors", gauge(wer, 1, { usual: uWer, change: num(uWer) !== null ? uWer + TH.speech_wer_increase : null, cls: f.wer ? "bad" : "" }),
+           pct(wer) + usualTxt(uWer, pct), f.wer ? "bad" : "");
+  h += row("Pace", gauge(wpm, 220, { usual: uWpm, change: num(uWpm) !== null ? uWpm * (1 - TH.speech_rate_drop_fraction) : null, changeLabel: "slow", cls: f.wpm ? "bad" : "" }),
+           (num(wpm) === null ? "–" : Math.round(wpm) + " wpm") + usualTxt(uWpm, wpmFmt), f.wpm ? "bad" : "");
+  h += row("Longest pause", gauge(pause, 3, { change: TH.speech_longest_pause_s, changeLabel: "long", cls: f.pause ? "bad" : "" }),
+           num(pause) === null ? "–" : pause.toFixed(1) + " s", f.pause ? "bad" : "");
+  h += `</div>` + qualityNote(r, st);
+  return [st, h];
+}
+
+function renderTimeline() {
+  const i = stepIdx(), finished = !!(S.decision || S.baselineSaved || S.step === "closing");
+  let h = "";
+  STEPS.forEach((s, k) => {
+    let cls = "";
+    if (S.runId) {
+      if (finished || k < i) cls = "done";
+      else if (k === i) cls = "active";
+    }
+    if (k) h += `<div class="tbar ${cls ? "done" : ""}"></div>`;
+    h += `<div class="tstep ${cls}"><div class="dot">${cls === "done" ? "✓" : k + 1}</div>${s.label}</div>`;
+  });
+  $("timeline").innerHTML = h;
+}
+
+function fmtDate(iso) {
+  try { return new Date(iso).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); }
+  catch (e) { return iso; }
+}
+
+function renderDecision() {
+  const o = $("outcome"), d = S.decision;
+  let cls = "pending", html = "Waiting for a call", reasons = [];
+  if (S.runId) { html = "Checking…<small>The result appears here after the sentence.</small>"; }
+  if (d) {
+    reasons = d.reasons || [];
+    if (d.outcome === "escalate") { cls = "escalate"; html = "Change noticed → call 911<small>The person was told to call 911 now.</small>"; }
+    else if (d.outcome === "unclear") { cls = "unclear"; html = "Couldn't measure clearly → call 911<small>Treated exactly like a change: the person was told to call 911.</small>"; }
+    else { cls = "neutral"; html = "No change from usual check‑in<small>Onset never says you're fine. If you feel unwell, call 911.</small>"; }
+  } else if (S.baselineSaved) {
+    cls = "neutral"; html = "First check‑in recorded as usual<small>Next check-ins are compared with this one.</small>";
+  } else if (S.ended && S.hasBaseline === false && S.step === "closing") {
+    cls = "unclear"; html = "Couldn't record a usual check‑in<small>Try again later. If you feel unwell, call 911.</small>";
+  } else if (S.ended && S.ended.reason && S.ended.reason !== "complete") {
+    cls = "unclear"; html = `Check-in ended early<small>${esc(S.ended.reason)}</small>`;
+  }
+  o.className = "outcome " + cls; o.innerHTML = html;
+  $("reasons").innerHTML = reasons.map(r => `<li>${esc(r)}</li>`).join("");
+  $("reasons").className = "reasons" + (reasons.length > 3 ? "" : " one");
+  let meta = "";
+  if (S.runId) {
+    if (S.baseline && S.baseline.recorded_at) meta = `Compared with usual check-in of ${fmtDate(S.baseline.recorded_at)}` + (S.baseline.samples > 1 ? ` (${S.baseline.samples} check-ins)` : "");
+    else if (S.hasBaseline) meta = "Compared with the saved usual check-in";
+    else if (S.hasBaseline === false) meta = "No usual check-in yet: this call records one";
+  }
+  $("dmeta").textContent = meta;
+  $("dtime").textContent = S.runId ? fmtClock(S.ended && num(S.ended.t) !== null ? S.ended.t : nowT()) : "";
+}
+function fmtClock(t) { t = Math.max(0, Math.floor(t)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; }
+
+function renderCaregiver() {
+  const c = S.caregiver, d = S.decision;
+  const st = $("cgstatus"), det = $("cgdetail"), msgs = $("msgs");
+  if (c) {
+    const label = { dry_run: "Dry run: not sent", sent: "Sent to caregiver", failed: "Failed to send", skipped: "Not sent" }[c.status] || c.status;
+    st.className = "cg-status " + ({ dry_run: "dry", sent: "sent", failed: "failed" }[c.status] || "");
+    st.textContent = label;
+    det.textContent = c.detail || (c.status === "dry_run" ? "Rehearsal mode: the text is composed exactly as it would be sent." : "");
+    const bcls = c.status === "sent" ? "" : (c.status === "failed" ? "failed" : "dry");
+    const receipt = { dry_run: "Dry run", sent: "Sent", failed: "Not delivered", skipped: "Not sent" }[c.status] || "";
+    msgs.innerHTML = c.text ? `<div class="bubble ${bcls}">${esc(c.text)}</div><div class="receipt ${c.status === "failed" ? "failed" : ""}">${esc(receipt)}</div>`
+                            : `<div class="empty">No message text</div>`;
+    return;
+  }
+  msgs.innerHTML = `<div class="empty">No message</div>`;
+  st.className = "cg-status";
+  if (d && d.outcome !== "no_change_detected") { st.textContent = "Texting caregiver…"; det.textContent = "Composing the iMessage."; }
+  else if (d) { st.textContent = "Not texted"; det.textContent = "No change was noticed, so the caregiver is not texted."; }
+  else if (S.baselineSaved) { st.textContent = "Not texted"; det.textContent = "First check-in: nothing to compare yet."; }
+  else { st.textContent = "Not texted yet"; det.textContent = "A text goes to the caregiver only if a change is noticed or the check is unclear."; }
+}
+
+function renderVideo() {
+  $("caption").textContent = S.caption || (S.runId ? "" : "Call the Onset line on FaceTime to start.");
+  $("said").innerHTML = S.lastSay ? `Agent says: <b>${esc(S.lastSay)}</b>` : "";
+  const c = $("count");
+  let left = null;
+  if (S.step === "arms_hold") {
+    const el = num(S.arms.live.hold_elapsed);
+    left = (S.arms.holdSeconds || ARMS_HOLD_DEFAULT) - (el ?? (performance.now() - S.stepAt) / 1000);
+  } else if (num(S.stepSeconds) && !S.ended) left = S.stepSeconds - (performance.now() - S.stepAt) / 1000;
+  if (left !== null && left > -0.5 && S.step !== "closing") { c.hidden = false; c.textContent = Math.max(0, Math.ceil(left)); }
+  else c.hidden = true;
+  const b = $("runbadge");
+  if (S.runId) {
+    const synthetic = /^demo/.test(S.runId);
+    b.textContent = synthetic ? "synthetic demo run" : (S.source === "replay" ? "replay of a recorded call" : "live call");
+    b.className = "badge" + (synthetic ? " synthetic" : "");
+  } else { b.textContent = "no call yet"; b.className = "badge"; }
+}
+
+let dirty = true;
+function render() { dirty = true; }
+function draw() {
+  if (dirty) {
+    dirty = false;
+    renderTimeline(); renderVideo(); renderDecision(); renderCaregiver();
+    for (const [id, fn] of [["c-face", renderFace], ["c-arms", renderArms], ["c-speech", renderSpeech]]) {
+      const [st, html] = fn(); const el = $(id);
+      el.className = "check st-" + st; el.innerHTML = html;
+    }
+  }
+  requestAnimationFrame(draw);
+}
+setInterval(render, 250); // countdowns and the clock move between events
+requestAnimationFrame(draw);
+
+// ------------------------------------------------------------------ the event stream
+function connect() {
+  const es = new EventSource("/events");
+  const conn = $("conn");
+  es.onopen = () => { conn.className = "conn live"; conn.lastChild.textContent = "live"; };
+  es.onerror = () => { conn.className = "conn down"; conn.lastChild.textContent = "reconnecting…"; };
+  es.addEventListener("reset", e => {
+    let info = {}; try { info = JSON.parse(e.data); } catch (x) {}
+    S = fresh(); caughtUp = !!info.live; stopAudio(); render();
+  });
+  es.addEventListener("caught_up", () => { caughtUp = true; render(); });
+  es.onmessage = e => {
+    let ev; try { ev = JSON.parse(e.data); } catch (x) { return; }
+    apply(ev, caughtUp); render();
+  };
+}
+
+// ------------------------------------------------------------------ video frames
+let lastUrl = null;
+async function pollFrame() {
+  const wrap = $("vwrap"), img = $("frame"), ph = $("vph"), tag = $("vtag");
+  try {
+    const r = await fetch("/frame.jpg?ts=" + Date.now(), { cache: "no-store" });
+    if (r.ok) {
+      const age = parseFloat(r.headers.get("X-Frame-Age") || "0");
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      img.onload = () => { if (lastUrl && lastUrl !== url) URL.revokeObjectURL(lastUrl); lastUrl = url; };
+      img.src = url;
+      ph.style.display = "none"; img.style.display = "block";
+      const stale = age > 2.5;
+      wrap.classList.toggle("stale", stale);
+      tag.textContent = "video paused";
+    } else {
+      img.style.display = "none"; ph.style.display = "grid"; wrap.classList.remove("stale");
+    }
+  } catch (e) { tag.textContent = "dashboard offline"; wrap.classList.add("stale"); }
+  setTimeout(pollFrame, 200);
+}
+
+// ------------------------------------------------------------------ agent voice in the room
+const voice = $("voice"), unlock = $("unlock");
+let unlocked = false, queue = [], current = null;
+const params = new URLSearchParams(location.search);
+voice.checked = params.has("voice") ? params.get("voice") !== "0" : load("onset.voice") !== "0";
+function showUnlock() { unlock.classList.toggle("show", voice.checked && !unlocked); }
+voice.addEventListener("change", () => { store("onset.voice", voice.checked ? "1" : "0"); if (!voice.checked) stopAudio(); showUnlock(); });
+unlock.addEventListener("click", () => {
+  try { const Ctx = window.AudioContext || window.webkitAudioContext; if (Ctx) { const ctx = new Ctx(); ctx.resume(); const b = ctx.createBuffer(1, 1, 22050); const s = ctx.createBufferSource(); s.buffer = b; s.connect(ctx.destination); s.start(0); } } catch (e) {}
+  try { if (window.speechSynthesis) speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch (e) {}
+  unlocked = true; showUnlock(); playNext();
+});
+function speak(ev) {
+  if (!voice.checked) return;
+  const key = (S.runId || "") + "|" + (ev.audio || ev.text) + "|" + ev.t;
+  if (played.has(key)) return;
+  played.add(key);
+  queue.push(ev); playNext();
+}
+function playNext() {
+  if (current || !unlocked || !voice.checked || !queue.length) return;
+  const ev = queue.shift();
+  const done = () => { current = null; playNext(); };
+  const name = ev.audio ? String(ev.audio).split("/").pop() : null;
+  if (name) {
+    const a = new Audio("/audio/" + encodeURIComponent(name));
+    current = a; a.onended = done; a.onerror = done;
+    a.play().catch(err => { current = null; if (err && err.name === "NotAllowedError") { unlocked = false; queue.unshift(ev); showUnlock(); } else done(); });
+  } else if (ev.text && window.speechSynthesis && params.get("tts") !== "0") {
+    // No audio file for this line (e.g. a replay without voice): the browser's own voice says it.
+    const u = new SpeechSynthesisUtterance(ev.text); u.rate = 0.95;
+    current = u; u.onend = done; u.onerror = done; speechSynthesis.speak(u);
+  }
+}
+function stopAudio() {
+  queue = [];
+  if (current && current.pause) { try { current.pause(); } catch (e) {} }
+  try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
+  current = null;
+}
+
+// ------------------------------------------------------------------ start
+fetch("/config", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(c => {
+  if (c && c.thresholds && Object.keys(c.thresholds).length) { TH = { ...TH, ...c.thresholds }; render(); }
+}).catch(() => {});
+showUnlock();
+connect();
+pollFrame();
+</script>
+</body>
+</html>
