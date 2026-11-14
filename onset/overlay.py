@@ -3,33 +3,58 @@
 The caller may not hear Onset (see CHERT_SUPPORT_REPORT.md), so every instruction is drawn
 large on the video: a caption panel, a countdown bar and a step progress pill. Text is sized
 for a phone showing a 640x360 picture: caption cap height is at least MIN_CAP_PX pixels.
+
+Look: Inter Bold on a deep ink panel with a thin teal rule, the same visual language as the
+pitch deck and dashboard. Lines that tell the caller to call 911 now use the one alert colour.
+A new caption rises and fades in over a fraction of a second (draw_caption); nothing flashes.
 """
 
 from __future__ import annotations
 
 import functools
+import re
 import textwrap
 from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 MIN_CAP_PX = 28  # minimum capital-letter height of caption text, in output pixels
+_ASSETS = Path(__file__).resolve().parent / "assets" / "fonts"
 FONT_FILES = [
+    str(_ASSETS / "Inter-Bold.ttf"),  # bundled (SIL OFL), so every machine draws the same captions
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
     "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
 ]
+PILL_FONT_FILES = [str(_ASSETS / "Inter-SemiBold.ttf"), *FONT_FILES]
 MAX_LINES = 3
+
+# Palette (RGB), shared with web/pitch and web/dashboard.html
+INK = (8, 12, 22)          # caption panel
+TEXT = (248, 250, 252)
+GLOW = (103, 224, 210)     # the measuring teal: rules, progress
+ALERT = (255, 91, 69)      # only for "call 911 now"
+ALERT_INK = (58, 10, 7)
+TRACK = (34, 40, 54)
+_ALERT_RE = re.compile(r"\b911 now\b", re.I)
 
 
 @functools.lru_cache(maxsize=16)
-def font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    for f in FONT_FILES:
+def _load(files: tuple[str, ...], size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    for f in files:
         if Path(f).is_file():
             return ImageFont.truetype(f, size)
     return ImageFont.load_default(size=size)
+
+
+def font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    return _load(tuple(FONT_FILES), size)
+
+
+def pill_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    return _load(tuple(PILL_FONT_FILES), size)
 
 
 def cap_height(size: int) -> int:
@@ -60,6 +85,23 @@ def _wrap(text: str, size: int, width_px: int) -> list[str]:
     return lines
 
 
+def _balanced(text: str, size: int, width_px: int, n: int) -> list[str]:
+    """The same number of lines, as even as possible (no lone last word)."""
+    lo, hi = width_px // 3, width_px
+    while hi - lo > 4:
+        mid = (lo + hi) // 2
+        if len(_wrap(text, size, mid)) <= n:
+            hi = mid
+        else:
+            lo = mid
+    return _wrap(text, size, hi)
+
+
+def is_alert(text: str) -> bool:
+    """Captions that tell the caller to call 911 now get the alert treatment."""
+    return bool(_ALERT_RE.search(text or ""))
+
+
 @functools.lru_cache(maxsize=64)
 def caption_layer(text: str, w: int, h: int, position: str = "bottom") -> tuple[np.ndarray, dict]:
     """A transparent RGBA layer with the caption panel, plus layout info (for tests).
@@ -70,54 +112,135 @@ def caption_layer(text: str, w: int, h: int, position: str = "bottom") -> tuple[
     """
     layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     if not text:
-        return np.asarray(layer).copy(), {"lines": [], "size": 0, "cap": 0, "box": None}
-    min_cap = max(MIN_CAP_PX, round(MIN_CAP_PX * h / 360))
+        return np.asarray(layer).copy(), {"lines": [], "size": 0, "cap": 0, "box": None, "alert": False}
+    k = h / 360
+    min_cap = max(MIN_CAP_PX, round(MIN_CAP_PX * k))
     size = font_size_for_cap(min_cap)
-    pad = max(8, w // 40)
-    lines = _wrap(text, size, w - 2 * pad)
+    pad_x = max(10, w // 32)
+    lines = _wrap(text, size, w - 2 * pad_x)
     # Grow the font a little for short captions that fit on one or two lines.
-    for bigger in (int(size * 1.25), int(size * 1.12)):
-        trial = _wrap(text, bigger, w - 2 * pad)
+    for bigger in (int(size * 1.22), int(size * 1.1)):
+        trial = _wrap(text, bigger, w - 2 * pad_x)
         if len(trial) <= 2 and len(trial) <= max(1, len(lines)):
             size, lines = bigger, trial
             break
+    if 1 < len(lines) <= MAX_LINES:
+        lines = _balanced(text, size, w - 2 * pad_x, len(lines))
     if len(lines) > MAX_LINES:
         lines = lines[:MAX_LINES]
         lines[-1] = textwrap.shorten(lines[-1] + " …", width=max(4, len(lines[-1])), placeholder=" …")
     f = font(size)
+    alert = is_alert(text)
     asc, desc = f.getmetrics()
-    line_h = asc + desc + max(2, size // 10)
-    panel_h = line_h * len(lines) + 2 * pad
+    line_h = round((asc + desc) * 1.02)
+    pad_y = max(8, round(12 * k))
+    rule = max(2, round(3 * k))
+    panel_h = line_h * len(lines) + 2 * pad_y + rule
     y0 = 0 if position == "top" else h - panel_h
-    d = ImageDraw.Draw(layer)
-    d.rectangle([0, y0, w, y0 + panel_h], fill=(10, 14, 28, 215))
-    d.rectangle([0, y0 if position == "bottom" else y0 + panel_h - 4, w,
-                 (y0 + 4) if position == "bottom" else y0 + panel_h], fill=(90, 200, 255, 255))
-    y = y0 + pad
+    ink = ALERT_INK if alert else INK
+    accent = ALERT if alert else GLOW
+
+    # panel: solid where the words are, feathered into the picture on its inner edge
+    feather = max(6, round(14 * k))
+    panel = np.zeros((h, w, 4), np.uint8)
+    panel[y0:y0 + panel_h, :, :3] = ink
+    panel[y0:y0 + panel_h, :, 3] = 226 if alert else 214
+    if position == "bottom":
+        ys = np.arange(max(0, y0 - feather), y0)
+        panel[ys, :, :3] = ink
+        panel[ys, :, 3] = (np.linspace(0, 150, len(ys))).astype(np.uint8)[:, None]
+        panel[y0:y0 + rule, :, :3] = accent
+        panel[y0:y0 + rule, :, 3] = 255
+    else:
+        ys = np.arange(y0 + panel_h, min(h, y0 + panel_h + feather))
+        panel[ys, :, :3] = ink
+        panel[ys, :, 3] = (np.linspace(150, 0, len(ys))).astype(np.uint8)[:, None]
+        panel[y0 + panel_h - rule:y0 + panel_h, :, :3] = accent
+        panel[y0 + panel_h - rule:y0 + panel_h, :, 3] = 255
+    layer = Image.fromarray(panel, "RGBA")
+
+    # words, with a soft shadow so they stay crisp after video compression
+    words = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    dw, ds = ImageDraw.Draw(words), ImageDraw.Draw(shadow)
+    y = y0 + pad_y + (rule if position == "bottom" else 0)
     for line in lines:
         lw = f.getlength(line)
-        d.text(((w - lw) / 2, y), line, font=f, fill=(255, 255, 255, 255))
+        x = (w - lw) / 2
+        ds.text((x, y + max(1, round(k))), line, font=f, fill=(0, 0, 0, 170))
+        dw.text((x, y), line, font=f, fill=(*TEXT, 255))
         y += line_h
-    info = {"lines": lines, "size": size, "cap": cap_height(size), "box": (0, y0, w, y0 + panel_h)}
+    shadow = shadow.filter(ImageFilter.GaussianBlur(max(1, k)))
+    layer = Image.alpha_composite(Image.alpha_composite(layer, shadow), words)
+    info = {"lines": lines, "size": size, "cap": cap_height(size), "box": (0, y0, w, y0 + panel_h), "alert": alert}
     return np.asarray(layer).copy(), info
+
+
+# ---------------------------------------------------------------- caption motion
+
+_seen: dict[tuple[int, int, str], tuple[str, float]] = {}
+ENTER_S = 0.35  # how long a new caption takes to settle
+
+
+def draw_caption(img: np.ndarray, text: str, position: str, t: float) -> None:
+    """Composite the caption onto img; a caption that just changed rises and fades in.
+
+    `t` is the caller of render's clock in seconds. Purely visual: the words are on screen
+    in full within ENTER_S seconds, and a static caption is drawn exactly like caption_layer.
+    """
+    h, w = img.shape[:2]
+    layer, info = caption_layer(text, w, h, position)
+    key = (w, h, position)
+    last = _seen.get(key)
+    if last is None or last[0] != text or t < last[1]:
+        _seen[key] = (text, t)
+        last = _seen[key]
+    p = (t - last[1]) / ENTER_S
+    if p >= 1 or not text:
+        composite(img, layer)
+        return
+    e = 1 - (1 - max(0.0, p)) ** 3  # ease-out
+    shift = round((1 - e) * max(6, 12 * h / 360)) * (1 if position == "bottom" else -1)
+    moved = np.zeros_like(layer)
+    if shift > 0:
+        moved[shift:] = layer[:-shift]
+    elif shift < 0:
+        moved[:shift] = layer[-shift:]
+    else:
+        moved[:] = layer
+    moved[..., 3] = (moved[..., 3].astype(np.float32) * (0.25 + 0.75 * e)).astype(np.uint8)
+    composite(img, moved)
 
 
 @functools.lru_cache(maxsize=32)
 def pill_layer(text: str, w: int, h: int, position: str = "top") -> np.ndarray:
+    """Step progress: "Step 2 of 3 · Arms" with three dots, the done ones in teal."""
     layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     if not text:
         return np.asarray(layer).copy()
-    size = font_size_for_cap(max(14, round(16 * h / 360)))
-    f = font(size)
-    pad = max(6, size // 3)
+    k = h / 360
+    size = max(14, round(17 * k))
+    f = pill_font(size)
+    m = re.match(r"Step (\d+) of (\d+)", text)
+    step, total = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+    pad = max(7, round(10 * k))
+    dot_r, dot_gap = max(3, round(3.5 * k)), max(9, round(11 * k))
+    dots_w = (total * dot_gap + pad) if total else 0
     tw = f.getlength(text)
     asc, desc = f.getmetrics()
-    bw, bh = int(tw + 2 * pad), asc + desc + pad
-    x0 = w - bw - pad
-    y0 = pad if position == "top" else h - bh - pad
+    bh = asc + desc + pad
+    bw = int(tw + 2 * pad + dots_w)
+    margin = max(8, round(10 * k))
+    x0 = w - bw - margin
+    y0 = margin if position == "top" else h - bh - margin
     d = ImageDraw.Draw(layer)
-    d.rounded_rectangle([x0, y0, x0 + bw, y0 + bh], radius=bh // 2, fill=(10, 14, 28, 200))
-    d.text((x0 + pad, y0 + pad // 2), text, font=f, fill=(255, 255, 255, 255))
+    d.rounded_rectangle([x0, y0, x0 + bw, y0 + bh], radius=bh // 2, fill=(*INK, 205))
+    d.text((x0 + pad, y0 + pad // 2), text, font=f, fill=(*TEXT, 255))
+    cy = y0 + bh / 2
+    for i in range(total):
+        cx = x0 + pad + tw + pad + i * dot_gap + dot_r
+        fill = (*GLOW, 255) if i < step else (255, 255, 255, 80)
+        d.ellipse([cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r], fill=fill)
     return np.asarray(layer).copy()
 
 
@@ -131,13 +254,17 @@ def composite(base: np.ndarray, layer: np.ndarray) -> None:
 
 
 def countdown_bar(img: np.ndarray, fraction_left: float, position: str = "top") -> None:
-    """A full-width bar that empties as time runs out."""
+    """A full-width bar that empties as time runs out, with a bright leading edge."""
     h, w = img.shape[:2]
     bh = max(6, h // 45)
     y0 = 0 if position == "top" else h - bh
     frac = float(np.clip(fraction_left, 0.0, 1.0))
-    cv2.rectangle(img, (0, y0), (w, y0 + bh), (40, 40, 50, 255), -1)
-    cv2.rectangle(img, (0, y0), (int(w * frac), y0 + bh), (90, 220, 120, 255), -1)
+    x1 = int(w * frac)
+    cv2.rectangle(img, (0, y0), (w, y0 + bh - 1), (*TRACK, 255), -1)
+    if x1 > 0:
+        cv2.rectangle(img, (0, y0), (x1, y0 + bh - 1), (*GLOW, 255), -1)
+        edge = max(2, bh // 3)
+        cv2.rectangle(img, (max(0, x1 - edge), y0), (x1, y0 + bh - 1), (215, 255, 249, 255), -1)
 
 
 def letterbox(img: np.ndarray, w: int, h: int) -> np.ndarray:
@@ -154,8 +281,18 @@ def letterbox(img: np.ndarray, w: int, h: int) -> np.ndarray:
     return canvas
 
 
-def blank(w: int, h: int) -> np.ndarray:
+@functools.lru_cache(maxsize=4)
+def _blank(w: int, h: int) -> np.ndarray:
+    """Deep ink with a soft teal glow: the picture before the caller's video arrives."""
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    r = np.sqrt(((xx - w * 0.5) / (w * 0.75)) ** 2 + ((yy - h * 0.42) / (h * 0.9)) ** 2)
+    glow = np.clip(1 - r, 0, 1) ** 2
     img = np.zeros((h, w, 4), dtype=np.uint8)
-    img[..., :3] = (22, 26, 40)
+    for c, (base, tint) in enumerate(zip((10, 15, 26), (24, 52, 58))):
+        img[..., c] = (base + (tint - base) * glow).astype(np.uint8)
     img[..., 3] = 255
     return img
+
+
+def blank(w: int, h: int) -> np.ndarray:
+    return _blank(w, h).copy()
