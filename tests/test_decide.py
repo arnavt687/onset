@@ -34,20 +34,22 @@ BANNED = ("fine", "normal", "healthy", "no stroke", "stroke")
 
 def results(
     *,
-    face_q=Quality.OK, asym=0.02, face_side="right",
-    arm_q=Quality.OK, diff=0.02, arm_side="left", hold=10.0,
-    speech_q=Quality.OK, wer=0.0, wpm=150.0, pause=0.4, sentence=SENTENCE,
+    face_q=Quality.OK, asym=0.02, face_side="right", face_detail=None,
+    arm_q=Quality.OK, diff=0.02, arm_side="left", hold=10.0, left=None, right=None, arm_detail=None,
+    speech_q=Quality.OK, wer=0.0, wpm=150.0, pause=0.4, sentence=SENTENCE, speech_detail=None,
     started_at="2026-11-13T14:05:00+00:00",
 ) -> CheckResults:
     return CheckResults(
-        face=FaceResult(quality=face_q, asymmetry=asym, weaker_side=face_side, frames_used=30),
+        face=FaceResult(quality=face_q, asymmetry=asym, weaker_side=face_side, frames_used=30,
+                        detail=dict(face_detail or {})),
         arms=ArmResult(
-            quality=arm_q, left_drift=diff, right_drift=0.0, drift_difference=diff,
-            weaker_side=arm_side, hold_seconds=hold, frames_used=300,
+            quality=arm_q, left_drift=diff if left is None else left, right_drift=0.0 if right is None else right,
+            drift_difference=diff, weaker_side=arm_side, hold_seconds=hold, frames_used=300,
+            detail=dict(arm_detail or {}),
         ),
         speech=SpeechResult(
-            quality=speech_q, expected=sentence, transcript=sentence.lower(),
-            word_error_rate=wer, words_per_minute=wpm, longest_pause_s=pause,
+            quality=speech_q, expected=sentence, transcript=sentence.lower() if isinstance(sentence, str) else None,
+            word_error_rate=wer, words_per_minute=wpm, longest_pause_s=pause, detail=dict(speech_detail or {}),
         ),
         started_at=started_at,
     )
@@ -82,7 +84,8 @@ CASES = [
     # arms
     ("arms at threshold", dict(diff=0.02 + T.arm_drift_difference_increase), B, Outcome.ESCALATE, ["left arm drifted"]),
     ("arms just below", dict(diff=0.02 + T.arm_drift_difference_increase - 0.001), B, Outcome.NO_CHANGE_DETECTED, []),
-    ("arms no side", dict(diff=0.5, arm_side=None), B, Outcome.ESCALATE, ["One arm drifted"]),
+    ("arms no side", dict(diff=0.10, arm_side=None), B, Outcome.ESCALATE, ["One arm drifted"]),
+    ("arms big drop, no side", dict(diff=0.5, arm_side=None), B, Outcome.ESCALATE, ["arm dropped"]),
     ("hold at minimum", dict(hold=T.arm_min_hold_s), B, Outcome.NO_CHANGE_DETECTED, []),
     ("hold too short", dict(hold=T.arm_min_hold_s - 0.1), B, Outcome.UNCLEAR, ["full time"]),
     ("hold missing", dict(hold=float("nan")), B, Outcome.UNCLEAR, ["full time"]),
@@ -172,8 +175,12 @@ def test_custom_thresholds():
 def test_thresholds_live_in_one_dataclass():
     names = {f for f in asdict(T)}
     assert names == {
-        "face_asymmetry_increase", "arm_drift_difference_increase", "arm_min_hold_s",
-        "speech_wer_increase", "speech_rate_drop_fraction", "speech_longest_pause_s",
+        "face_asymmetry_increase", "face_side_noise",
+        "arm_drift_difference_increase", "arm_side_noise", "arm_drift_difference_absolute",
+        "arm_single_drift_absolute", "arm_min_hold_s", "baseline_min_hold_s",
+        "speech_wer_increase", "speech_word_errors_increase", "speech_rate_drop_fraction",
+        "speech_pause_floor_s", "speech_pause_increase_s", "speech_longest_pause_s",
+        "speech_logprob_drop",
     }
     assert all(v > 0 for v in asdict(T).values())
     assert 0 < T.speech_rate_drop_fraction < 1
@@ -508,3 +515,278 @@ def test_math_isfinite_guard_used():
     # A NaN must never silently pass a ">=" comparison as "no change".
     assert not (math.nan >= 0.05)
     assert D.decide(results(asym=math.nan), B).outcome is Outcome.UNCLEAR
+
+
+# ------------------------------------------------------------- review fixes (2026-11-13)
+
+DOG = "You can't teach an old dog new tricks."  # 8 words after "can't" -> "cannot"
+
+
+def test_low_confidence_flag_is_unclear_with_plain_reason():
+    # Fix 1: Scribe turned mild slurring into the right words (WER 0); only confidence shows it.
+    partial = results(speech_q=Quality.PARTIAL, speech_detail={"low_confidence": True})
+    d = D.decide(partial, B)
+    assert d.outcome is Outcome.UNCLEAR
+    assert d.reasons == ["Some words were hard to make out"]
+    # The flag alone (quality left OK) is also never NO_CHANGE_DETECTED.
+    d = D.decide(results(speech_detail={"low_confidence": True}), B)
+    assert d.outcome is Outcome.UNCLEAR and "Some words were hard to make out" in d.reasons
+
+
+def test_confidence_drop_against_baseline_is_unclear():
+    b = baseline(speech_mean_logprob=-0.05)
+    assert D.decide(results(speech_detail={"mean_logprob": -0.06}), b).outcome is Outcome.NO_CHANGE_DETECTED
+    d = D.decide(results(speech_detail={"mean_logprob": -0.05 - T.speech_logprob_drop}), b)
+    assert d.outcome is Outcome.UNCLEAR and d.reasons == ["Some words were hard to make out"]
+
+
+def test_one_wrong_word_in_the_dog_sentence_escalates():
+    # Fix 2: 1/8 = 0.125 used to sit under the 0.15 threshold.
+    b = baseline(sentence=DOG)
+    d = D.decide(results(sentence=DOG, wer=0.125), b)
+    assert d.outcome is Outcome.ESCALATE and "The sentence came out less clearly than usual" in d.reasons
+    assert D.decide(results(sentence=DOG, wer=0.0), b).outcome is Outcome.NO_CHANGE_DETECTED
+
+
+@pytest.mark.parametrize("n_words", [6, 8, 12, 15, 20])
+def test_one_wrong_word_escalates_at_any_sentence_length(n_words):
+    sentence = " ".join(f"word{chr(97 + i)}" for i in range(n_words))
+    b = baseline(sentence=sentence)
+    one_word = round(1 / n_words, 3)  # speech.py rounds WER to 3 decimals
+    assert D.decide(results(sentence=sentence, wer=one_word), b).outcome is Outcome.ESCALATE
+    assert D.decide(results(sentence=sentence, wer=0.0), b).outcome is Outcome.NO_CHANGE_DETECTED
+
+
+def test_one_wrong_word_escalates_over_a_fractional_baseline():
+    # Half the baseline takes had one recognition error: today's one error still counts.
+    b = baseline(sentence=DOG, speech_word_error_rate=0.0625)
+    assert D.decide(results(sentence=DOG, wer=0.125), b).outcome is Outcome.ESCALATE
+    # A person who always had one error needs a second one.
+    b1 = baseline(sentence=DOG, speech_word_error_rate=0.125)
+    assert D.decide(results(sentence=DOG, wer=0.125), b1).outcome is Outcome.NO_CHANGE_DETECTED
+    assert D.decide(results(sentence=DOG, wer=0.25), b1).outcome is Outcome.ESCALATE
+
+
+def test_face_weaker_side_switch_escalates():
+    # Fix 3: same asymmetry, other side. The unsigned difference is 0.
+    b = baseline(face_asymmetry=0.06, face_weaker_side="right")
+    assert D.decide(results(asym=0.06, face_side="right"), b).outcome is Outcome.NO_CHANGE_DETECTED
+    d = D.decide(results(asym=0.06, face_side="left"), b)
+    assert d.outcome is Outcome.ESCALATE
+    assert "The left side of the smile lifted less than usual" in d.reasons
+
+
+def test_face_signed_lift_difference_escalates_below_side_noise():
+    # Baseline right slightly weaker (within noise, no side stored); today left weaker.
+    b = baseline(face_asymmetry=0.04, face_lift_left=0.125, face_lift_right=0.12)
+    today = results(asym=0.07, face_side="left", face_detail={"lift_left": 0.093, "lift_right": 0.1})
+    d = D.decide(today, b)
+    assert d.outcome is Outcome.ESCALATE, d.reasons
+    # Same side as the baseline and less uneven: an improvement, never a change.
+    b2 = baseline(face_asymmetry=0.3, face_weaker_side="left", face_lift_left=0.07, face_lift_right=0.1)
+    better = results(asym=0.1, face_side="left", face_detail={"lift_left": 0.09, "lift_right": 0.1})
+    assert D.decide(better, b2).outcome is Outcome.NO_CHANGE_DETECTED
+
+
+def test_arm_weaker_side_switch_escalates():
+    b = baseline(arm_drift_difference=0.04, arm_weaker_side="right", arm_drift_left=0.0, arm_drift_right=0.04)
+    same = results(diff=0.04, arm_side="right", left=0.0, right=0.04)
+    assert D.decide(same, b).outcome is Outcome.NO_CHANGE_DETECTED
+    switched = results(diff=0.04, arm_side="left", left=0.04, right=0.0)
+    d = D.decide(switched, b)
+    assert d.outcome is Outcome.ESCALATE and "The left arm drifted down more than usual" in d.reasons
+
+
+def test_arm_signed_difference_move_escalates():
+    # No side stored, but per-side drifts: right weaker by 0.02, today left weaker by 0.05.
+    b = baseline(arm_drift_difference=0.02, arm_drift_left=0.0, arm_drift_right=0.02)
+    d = D.decide(results(diff=0.05, arm_side="left", left=0.05, right=0.0), b)
+    assert d.outcome is Outcome.ESCALATE
+
+
+def test_old_baseline_file_without_new_fields_loads(tmp_path):
+    d = tmp_path / "baselines"
+    d.mkdir(mode=0o700)
+    old = {"version": 1, "patient_id": "p001", "recorded_at": "2026-11-01T10:00:00+00:00",
+           "face_asymmetry": 0.02, "arm_drift_difference": 0.02, "speech_word_error_rate": 0.0,
+           "speech_words_per_minute": 150.0, "sentence": SENTENCE, "samples": 3}
+    (d / "p001.json").write_text(json.dumps(old))
+    os.chmod(d / "p001.json", 0o600)
+    loaded = D.load_baseline("p001", base_dir=d)
+    assert loaded == B
+    assert loaded.face_weaker_side is None and loaded.speech_longest_pause_s is None
+    assert D.decide(results(), loaded).outcome is Outcome.NO_CHANGE_DETECTED
+
+
+def test_new_fields_roundtrip(tmp_path):
+    full = baseline(face_weaker_side="left", face_lift_left=0.08, face_lift_right=0.1,
+                    arm_drift_left=0.05, arm_drift_right=0.01, arm_weaker_side="left",
+                    speech_longest_pause_s=0.3, speech_mean_logprob=-0.04)
+    D.save_baseline(full, base_dir=tmp_path)
+    assert D.load_baseline("p001", base_dir=tmp_path) == full
+
+
+@pytest.mark.parametrize("bad", [
+    baseline(face_weaker_side="middle"), baseline(arm_weaker_side=1), baseline(face_lift_left=float("nan")),
+    baseline(arm_drift_right="0.1"), baseline(speech_longest_pause_s=-1.0), baseline(speech_mean_logprob=0.5),
+])
+def test_invalid_new_fields_refused(tmp_path, bad):
+    with pytest.raises(D.BaselineError):
+        D.save_baseline(bad, base_dir=tmp_path)
+    assert D.decide(results(), bad).outcome is Outcome.UNCLEAR
+
+
+ABSOLUTE_ARMS = {
+    # 0.20 difference over a 0.19 baseline: only +0.01, but large on any arm.
+    "difference": (dict(diff=0.20, left=0.2, right=0.0), 0.19, "much more than the other"),
+    # Both arms fell equally: no difference at all.
+    "single arm": (dict(diff=0.0, left=0.5, right=0.5, arm_side=None), 0.02, "dropped"),
+    # One arm came down first, small difference over the measured part.
+    "early drop": (dict(diff=0.04, arm_detail={"early_drop": "right"}, left=0.0, right=0.04,
+                        arm_side="right", hold=5.0), 0.02, "right arm came down before the other"),
+}
+
+
+@pytest.mark.parametrize("with_baseline", [True, False], ids=["baseline", "no baseline"])
+@pytest.mark.parametrize("case", list(ABSOLUTE_ARMS))
+def test_absolute_arm_rules_escalate_regardless_of_baseline(case, with_baseline):
+    # Fix 4: these never escalated before (UNCLEAR without a baseline, NO_CHANGE with one).
+    kw, base_diff, needle = ABSOLUTE_ARMS[case]
+    b = baseline(arm_drift_difference=base_diff) if with_baseline else None
+    d = D.decide(results(**kw), b)
+    assert d.outcome is Outcome.ESCALATE, d.reasons
+    assert needle in " | ".join(d.reasons)
+
+
+def test_absolute_arm_rules_only_on_ok_quality():
+    d = D.decide(results(arm_q=Quality.MOTION, diff=0.9, arm_detail={"early_drop": "left"}), B)
+    assert d.outcome is Outcome.UNCLEAR
+
+
+def test_different_sentence_is_unclear():
+    # Fix 5: used to be a log warning and NO_CHANGE_DETECTED.
+    d = D.decide(results(sentence="The quick brown fox jumps over it"), B)
+    assert d.outcome is Outcome.UNCLEAR
+    assert d.reasons == ["A different sentence was used than at the usual check-in"]
+    # Case and punctuation do not make it a different sentence.
+    assert D.decide(results(sentence=SENTENCE.upper() + "!"), B).outcome is Outcome.NO_CHANGE_DETECTED
+
+
+def test_pause_rule_relative_to_baseline():
+    # Fix 6: longest pause >= max(1.0, baseline + 0.7).
+    quick = baseline(speech_longest_pause_s=0.1)
+    assert D.decide(results(pause=0.99), quick).outcome is Outcome.NO_CHANGE_DETECTED
+    d = D.decide(results(pause=1.1), quick)  # under the old absolute 1.5 s
+    assert d.outcome is Outcome.ESCALATE and "There was a long pause while saying the sentence" in d.reasons
+    slow = baseline(speech_longest_pause_s=1.0)
+    assert D.decide(results(pause=1.6), slow).outcome is Outcome.NO_CHANGE_DETECTED
+    assert D.decide(results(pause=1.7), slow).outcome is Outcome.ESCALATE
+    # Older baseline without a pause: the absolute rule.
+    assert D.decide(results(pause=1.4), B).outcome is Outcome.NO_CHANGE_DETECTED
+    assert D.decide(results(pause=1.5), B).outcome is Outcome.ESCALATE
+
+
+@pytest.mark.parametrize("kw,match", [
+    (dict(arm_detail={"early_drop": "left"}), "early_drop"),
+    (dict(hold=9.0), "full hold"),
+    (dict(hold=8.0), "full hold"),
+    (dict(pause=2.0), "long pause"),
+    (dict(diff=0.25, left=0.25), "much more than the other"),
+    (dict(diff=0.0, left=0.6, right=0.6, arm_side=None), "dropped"),
+    (dict(speech_detail={"low_confidence": True}), "hard to make out"),
+    (dict(pause=None), "missing"),
+], ids=["early drop", "hold 9 s", "hold 8 s", "long pause", "big difference", "arm fell",
+        "low confidence", "no pause"])
+def test_baseline_from_refuses_check_ins_that_need_attention(kw, match):
+    # Fix 7: these were accepted and would have hidden a real change later.
+    with pytest.raises(ValueError, match=match):
+        D.baseline_from([results(), results(**kw)], "p001")
+
+
+def test_baseline_from_accepts_a_full_hold_with_frame_slack():
+    assert D.baseline_from([results(hold=9.8)], "p001").samples == 1
+
+
+def test_baseline_from_stores_per_side_values():
+    rs = [
+        results(asym=0.2, face_side="left", face_detail={"lift_left": 0.08, "lift_right": 0.1},
+                diff=0.04, arm_side="left", left=0.05, right=0.01, pause=0.3,
+                speech_detail={"mean_logprob": -0.04}),
+        results(asym=0.1, face_side="left", face_detail={"lift_left": 0.09, "lift_right": 0.1},
+                diff=0.04, arm_side="left", left=0.06, right=0.02, pause=0.5,
+                speech_detail={"mean_logprob": -0.06}),
+    ]
+    b = D.baseline_from(rs, "p001")
+    assert b.face_weaker_side == "left" and b.arm_weaker_side == "left"
+    assert b.face_lift_left == pytest.approx(0.085) and b.face_lift_right == pytest.approx(0.1)
+    assert b.arm_drift_left == pytest.approx(0.055) and b.arm_drift_right == pytest.approx(0.015)
+    assert b.speech_longest_pause_s == pytest.approx(0.4)
+    assert b.speech_mean_logprob == pytest.approx(-0.05)
+
+
+def test_thresholds_aligned_with_measurement_notes():
+    # Fix 8: decide was looser than notes/speech.md on WER; stricter values are kept.
+    assert T.speech_wer_increase == pytest.approx(0.10)
+    assert (T.speech_pause_floor_s, T.speech_pause_increase_s) == (1.0, 0.7)
+    assert T.face_asymmetry_increase <= 0.15  # notes/face.md suggests 0.15
+    assert T.speech_rate_drop_fraction <= 0.30  # notes/speech.md suggests 0.7x
+    assert T.arm_drift_difference_increase <= 0.12  # notes/arms.md suggests 0.12
+    assert T.arm_drift_difference_absolute == pytest.approx(0.20)
+    assert T.arm_single_drift_absolute == pytest.approx(0.50)
+    from onset.measure import arms, face
+    assert T.face_side_noise == face.MIN_ASYM_FOR_SIDE and T.arm_side_noise == arms.SIDE_NOISE
+    assert arms.HOLD_SECONDS - 0.3 <= T.baseline_min_hold_s < arms.HOLD_SECONDS
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "thresholds.md").read_text(encoding="utf-8")
+    assert "| Measure | decide threshold | Measurement notes | Direction |" in doc
+
+
+ODD = {
+    "expected None": dict(sentence=None),
+    "expected empty": dict(sentence=""),
+    "asymmetry string": dict(asym="0.1"),
+    "drift string": dict(diff="0.1"),
+    "hold string": dict(hold="10"),
+    "wer bool": dict(wer=True),
+    "pause string": dict(pause="0.4"),
+    "side list": dict(face_side=["left"], asym=0.3),
+    "per-side drift string": dict(left="x", right=None, diff=0.08),
+}
+
+
+@pytest.mark.parametrize("kw", list(ODD.values()), ids=list(ODD))
+def test_decide_never_raises_on_odd_inputs(kw):
+    # Fix 10: expected=None with a baseline used to raise AttributeError.
+    d = D.decide(results(**kw), B)
+    assert d.outcome is not Outcome.NO_CHANGE_DETECTED
+    assert d.reasons
+
+
+def test_decide_never_raises_on_broken_objects():
+    r = results()
+    for broken in (replace(r, face=None), replace(r, arms="nope"),
+                   replace(r, speech=replace(r.speech, detail="not a dict", quality="ok"))):
+        d = D.decide(broken, B)
+        assert d.outcome is Outcome.UNCLEAR, d.reasons
+    assert D.decide(None, B).outcome is Outcome.UNCLEAR
+    assert D.decide(r, {"patient_id": "p001"}).outcome is Outcome.UNCLEAR  # not a Baseline
+    assert D.decide(results(sentence=None), B).reasons == ["The sentence used could not be confirmed"]
+
+
+def test_new_reason_lines_do_not_reassure():
+    decisions = [
+        D.decide(results(speech_q=Quality.PARTIAL, speech_detail={"low_confidence": True}), B),
+        D.decide(results(speech_q=Quality.PARTIAL), B),
+        D.decide(results(sentence="Other words here"), B),
+        D.decide(results(sentence=None), B),
+        D.decide(results(diff=0.3, left=0.3), None),
+        D.decide(results(diff=0.0, left=0.6, right=0.6), None),
+        D.decide(results(arm_detail={"early_drop": "left"}), None),
+        D.decide(replace(results(), face=None), B),
+    ]
+    lines = []
+    for d in decisions:
+        assert d.outcome is not Outcome.NO_CHANGE_DETECTED
+        lines += d.reasons + [D.caregiver_summary(d, "Maria")]
+    for text in lines:
+        for word in BANNED:
+            assert word not in text.lower(), f"{word!r} in {text!r}"

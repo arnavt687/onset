@@ -25,6 +25,20 @@ Sides are the person's own: the image is not mirrored, so the person's left is i
 Everything that does geometry or decides quality is a pure function on landmark arrays
 (`face_geometry`, `corner_lifts`, `asymmetry_index`, `evaluate`), so it is unit-tested without
 images or MediaPipe. `FaceMeter` only turns frames into `FaceObs` and calls `evaluate`.
+
+Robustness
+----------
+`FaceMeter.add_*` and `result()` never raise. A frame on which MediaPipe raises is counted as
+failed: failed frames count in the denominator of the "face found" fraction (so a landmarker
+that fails on most frames cannot give OK), and if failures reach the number of processed
+frames the result is ERROR.
+
+Re-prompting
+------------
+`FaceMeter.reset()` forgets everything fed so far (frames, landmarks, the neutral rest pose,
+live numbers, failure counts) so the flow can re-prompt the step with the same meter (the model
+stays loaded). MediaPipe's VIDEO-mode timestamps keep increasing across a reset, even though
+`Frame.t` restarts at 0 for the new attempt.
 """
 
 from __future__ import annotations
@@ -235,12 +249,18 @@ def _result(quality: Quality, frames_used: int, detail: dict, asym=None, side=No
                       frames_used=frames_used, detail=detail)
 
 
-def evaluate(neutral: Sequence[FaceObs], smile: Sequence[FaceObs]) -> FaceResult:
-    """Quality gates, then the smile measurement. Pure: no images, no MediaPipe."""
+def evaluate(neutral: Sequence[FaceObs], smile: Sequence[FaceObs], failed_frames: int = 0) -> FaceResult:
+    """Quality gates, then the smile measurement. Pure: no images, no MediaPipe.
+
+    failed_frames: frames the landmarker raised on. They count as "no face" in the
+    face-found fraction, so failures cannot hide behind the frames that did work.
+    """
     allobs = list(neutral) + list(smile)
+    failed = max(0, int(failed_frames))
     detail: dict = {
         "frames_neutral": len(neutral),
         "frames_smile": len(smile),
+        "failed_frames": failed,
         "thresholds": {
             "min_face_fraction": MIN_FACE_FRACTION, "max_yaw_deg": MAX_YAW_DEG,
             "min_luma": MIN_LUMA, "max_motion_iod_per_s": MAX_MOTION,
@@ -252,7 +272,7 @@ def evaluate(neutral: Sequence[FaceObs], smile: Sequence[FaceObs]) -> FaceResult
         return _result(Quality.NO_SUBJECT, 0, detail)
 
     luma = float(np.median([o.luma for o in allobs]))
-    found = sum(o.pts is not None for o in allobs) / len(allobs)
+    found = sum(o.pts is not None for o in allobs) / (len(allobs) + failed)
     detail.update(median_luma=round(luma, 1), face_found_fraction=round(found, 3))
     if luma < MIN_LUMA:
         detail["reason"] = "too dark"
@@ -341,29 +361,44 @@ class FaceMeter:
     frame is too high for live use; see notes/face.md). Not thread-safe: call from one task.
     """
 
-    def __init__(self, model_path: str = DEFAULT_MODEL, process_every: int = 1) -> None:
+    def __init__(self, model_path: str = DEFAULT_MODEL, process_every: int = 1, *,
+                 landmarker=None) -> None:
         import mediapipe as mp
-        from mediapipe.tasks.python import BaseOptions, vision
 
         self._mp = mp
-        opts = vision.FaceLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=str(find_model(model_path))),
-            running_mode=vision.RunningMode.VIDEO,
-            num_faces=1,
-            min_face_detection_confidence=0.5,
-            min_face_presence_confidence=0.5,
-            min_tracking_confidence=0.5,
-        )
-        self._landmarker = vision.FaceLandmarker.create_from_options(opts)
+        if landmarker is None:
+            from mediapipe.tasks.python import BaseOptions, vision
+
+            opts = vision.FaceLandmarkerOptions(
+                base_options=BaseOptions(model_asset_path=str(find_model(model_path))),
+                running_mode=vision.RunningMode.VIDEO,
+                num_faces=1,
+                min_face_detection_confidence=0.5,
+                min_face_presence_confidence=0.5,
+                min_tracking_confidence=0.5,
+            )
+            landmarker = vision.FaceLandmarker.create_from_options(opts)
+        self._landmarker = landmarker  # anything with detect_for_video(image, ts_ms), e.g. a test stub
         self.process_every = max(1, int(process_every))
-        self.neutral: list[FaceObs] = []
-        self.smile: list[FaceObs] = []
-        self._phase = "neutral"
-        self._seen = 0
         self._ts_base = 0
         self._last_ts = -1
+        self.reset()
+        self._phase: str | None = "neutral"  # the very first frame keeps its own timestamp
+
+    def reset(self) -> None:
+        """Forget every frame fed so far, to re-prompt the step with the same meter.
+
+        Clears the neutral and smile observations, the last landmarks, the neutral rest pose,
+        live numbers, failure counts and per-step timing. MediaPipe timestamps stay strictly
+        increasing: the next frame continues after the last one sent, whatever its Frame.t.
+        """
+        self.neutral: list[FaceObs] = []
+        self.smile: list[FaceObs] = []
+        self._phase = None  # re-anchor timestamps on the next frame
+        self._seen = 0
         self._ms: list[float] = []
-        self._errors: list[str] = []
+        self._errors: list[str] = []  # the last few error messages
+        self._n_errors = 0
         self._last: FaceObs | None = None
         self._rest: np.ndarray | None = None  # neutral corner median, for live numbers
         self._live: dict = {}
@@ -390,10 +425,14 @@ class FaceMeter:
 
     def _add(self, frame: Frame, phase: str) -> None:
         self._seen += 1
-        ts = self._timestamp_ms(frame.t, phase)
         if (self._seen - 1) % self.process_every:
+            try:
+                self._timestamp_ms(frame.t, phase)
+            except Exception:
+                pass
             return
         try:
+            ts = self._timestamp_ms(frame.t, phase)
             rgb = np.ascontiguousarray(frame.rgb[..., :3])
             h, w = rgb.shape[:2]
             t0 = time.perf_counter()
@@ -406,11 +445,15 @@ class FaceMeter:
                 pts = np.array([(p.x * w, p.y * h, p.z * w) for p in lm], dtype=np.float32)
             obs = FaceObs(t=frame.t, pts=pts, luma=_luma(rgb, pts), width=w, height=h)
         except Exception as e:  # never let one bad frame break the call
-            self._errors.append(f"{type(e).__name__}: {e}")
+            self._n_errors += 1
+            self._errors = (self._errors + [f"{type(e).__name__}: {e}"[:200]])[-3:]
             return
         (self.neutral if phase == "neutral" else self.smile).append(obs)
         self._last = obs
-        self._update_live(obs, phase)
+        try:
+            self._update_live(obs, phase)
+        except Exception:  # live numbers are only for the overlay
+            self._live = {}
 
     def _update_live(self, obs: FaceObs, phase: str) -> None:
         live: dict = {"phase": phase, "face": obs.geom is not None}
@@ -434,16 +477,18 @@ class FaceMeter:
         return float(np.median(self._ms)) if self._ms else None
 
     def result(self) -> FaceResult:
+        """The step's FaceResult. Never raises."""
         processed = len(self.neutral) + len(self.smile)
-        if self._errors and len(self._errors) >= max(1, processed):
+        if self._n_errors and self._n_errors >= max(1, processed):
             return FaceResult(Quality.ERROR, None, None, 0,
-                              {"reason": "landmarker failed", "errors": self._errors[-3:]})
+                              {"reason": "landmarker failed", "errors": self._n_errors,
+                               "error_messages": self._errors[-3:]})
         try:
-            res = evaluate(self.neutral, self.smile)
-        except Exception as e:  # pragma: no cover - defensive
-            return FaceResult(Quality.ERROR, None, None, 0, {"reason": f"{type(e).__name__}: {e}"})
-        res.detail.update(ms_per_frame=round(self.ms_per_frame, 1) if self._ms else None,
-                          process_every=self.process_every, errors=len(self._errors))
+            res = evaluate(self.neutral, self.smile, failed_frames=self._n_errors)
+            res.detail.update(ms_per_frame=round(self.ms_per_frame, 1) if self._ms else None,
+                              process_every=self.process_every, errors=self._n_errors)
+        except Exception as e:  # defensive: never raise into the call
+            return FaceResult(Quality.ERROR, None, None, 0, {"reason": f"{type(e).__name__}: {e}"[:300]})
         return res
 
     def draw(self, rgba: np.ndarray, live: dict | None = None) -> None:
