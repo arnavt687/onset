@@ -63,6 +63,29 @@ def parse_link(link: str) -> dict:
     return {k: v[0] for k, v in parse_qs(urlsplit(link).fragment).items()}
 
 
+def check_hangup(events: list[dict], runs: Path) -> list[str]:
+    """The caller hung up mid-check: Onset still decides and texts the caregiver (no link)."""
+    fails = []
+    if not any(e.get("type") == "hangup" for e in events):
+        fails.append("no hangup event")
+    dec = [e for e in events if e.get("type") == "decision"]
+    if not dec or dec[0].get("outcome") not in ("escalate", "unclear"):
+        fails.append(f"no escalate/unclear decision after the hang-up (got {dec[0].get('outcome') if dec else None})")
+    acts = [e for e in events if e.get("type") == "action"]
+    if not acts or acts[0].get("kind") != "imessage" or acts[0].get("live"):
+        fails.append(f"expected one dry-run summary text, no link (saw {[(a.get('kind'), a.get('live')) for a in acts]})")
+    return fails
+
+
+def check_greeting(events: list[dict]) -> list[str]:
+    g = [e for e in events if e.get("type") == "greeting"]
+    if not g:
+        return ["no greeting event (agent audio never started?)"]
+    if g[0].get("latency_s", 99) > 10:
+        return [f"greeting started {g[0]['latency_s']} s after bridge_ready (Chert hangs up at 10 s)"]
+    return []
+
+
 def check(events: list[dict], r: dict) -> list[str]:
     """Failures, from the agent's events and what the fake caller/caregiver observed."""
     fails = []
@@ -84,6 +107,8 @@ def check(events: list[dict], r: dict) -> list[str]:
         fails.append("the caregiver never received the summary (attributes or data)")
     if r.get("relay_tone", 0.0) < 0.3:
         fails.append(f"the caller did not hear the caregiver through Onset (tone share {r.get('relay_tone', 0):.2f})")
+    if r.get("ready_at") and (r.get("first_audible") is None or r["first_audible"] - r["ready_at"] > 10):
+        fails.append("the caller heard nothing from Onset within 10 s of bridge_ready (Chert would hang up)")
     if r.get("relay_attr") != "on":
         fails.append(f"agent attribute onset.relay never 'on' (last {r.get('relay_attr')!r})")
     return fails
@@ -114,7 +139,11 @@ async def main(a: argparse.Namespace) -> int:
 
     async def hear(track):
         async for ev in rtc.AudioStream(track, sample_rate=16000, num_channels=1):
-            agent_audio.append((time.monotonic(), np.frombuffer(ev.frame.data, np.int16).copy()))
+            pcm = np.frombuffer(ev.frame.data, np.int16).copy()
+            agent_audio.append((time.monotonic(), pcm))
+            if r.get("first_audible") is None and pcm.size and np.sqrt(np.mean(pcm.astype(np.float64) ** 2)) > 180:
+                r["first_audible"] = time.monotonic()
+                say("first audible Onset audio")
 
     @caller.on("track_subscribed")
     def _sub(track, pub, p):
@@ -153,7 +182,33 @@ async def main(a: argparse.Namespace) -> int:
     await asyncio.sleep(3)
     await lk.room.update_room_metadata(api.UpdateRoomMetadataRequest(
         room=room_name, metadata=json.dumps({"chert_call": "esctest", "chert_bridge_ready": True})))
+    r["ready_at"] = time.monotonic()
     say("bridge_ready set; waiting for the escalation (about a minute)")
+
+    if a.hangup_after is not None:
+        await asyncio.sleep(a.hangup_after)
+        say("the caller hangs up mid-check")
+        for t in tasks:
+            t.cancel()
+        await caller.disconnect()
+        evs: list[dict] = []
+        for _ in range(int(a.seconds * 2)):  # the archived run (runs/live is replaced by the next run)
+            evs = read_events()
+            if any(e.get("type") == "run_ended" for e in evs) and any(e.get("type") == "caregiver" for e in evs):
+                break
+            await asyncio.sleep(0.5)
+        await lk.room.delete_room(api.DeleteRoomRequest(room=room_name))
+        await lk.aclose()
+        print("\n=== agent events")
+        for e in evs:
+            if e.get("type") in ("greeting", "hangup", "decision", "action", "caregiver", "run_ended"):
+                brief = {k: v for k, v in e.items() if k not in ("t", "type", "text", "reasons")}
+                print(f"  {e.get('t', 0):6.2f}  {e['type']:<15} {json.dumps(brief)[:160]}")
+        fails = check_hangup(evs, RUNS) + check_greeting(evs)
+        print("\n=== " + ("PASS: after the hang-up Onset still decided and (dry run) texted the caregiver" if not fails else "FAIL"))
+        for f in fails:
+            print("  -", f)
+        return 0 if not fails else 1
 
     link_file = LIVE / "caregiver_link.txt"
     deadline = time.monotonic() + a.seconds
@@ -238,10 +293,10 @@ async def main(a: argparse.Namespace) -> int:
     events = read_events()
     print("\n=== agent events")
     for e in events:
-        if e.get("type") in ("decision", "caregiver_join", "action", "caregiver", "run_ended"):
+        if e.get("type") in ("greeting", "decision", "caregiver_join", "action", "caregiver", "run_ended"):
             brief = {k: v for k, v in e.items() if k not in ("t", "type", "text", "reasons")}
             print(f"  {e.get('t', 0):6.2f}  {e['type']:<15} {json.dumps(brief)[:160]}")
-    fails = check(events, r)
+    fails = check(events, r) + check_greeting(events)
     print("\n=== " + ("PASS: the caregiver joined, saw the summary, and the caller heard them through Onset"
                       if not fails else "FAIL"))
     for f in fails:
@@ -252,6 +307,7 @@ async def main(a: argparse.Namespace) -> int:
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--seconds", type=float, default=150.0, help="max seconds to wait for the escalation")
+    p.add_argument("--hangup-after", type=float, help="the caller hangs up this many seconds after bridge_ready")
     p.add_argument("--talk-seconds", type=float, default=16.0, help="how long the caregiver talks")
     p.add_argument("--measure-seconds", type=float, default=5.0,
                    help="the last N seconds of talking must carry the tone (Onset's own lines play first)")

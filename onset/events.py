@@ -72,15 +72,77 @@ def _plain(value: Any) -> Any:
     return value
 
 
+LIVE_LOCK_STALE_S = 1800.0  # a crashed call's live.lock is ignored after this long
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def take_live(root: Path, run_id: str) -> bool:
+    """Claim runs/live/ for this run. False when another process's call holds it (a second
+    call while one is running): that call keeps the dashboard; this one writes to runs/<id>/."""
+    lock = root / "live.lock"
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return True
+    for _ in range(3):
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            with os.fdopen(fd, "w") as f:
+                json.dump({"pid": os.getpid(), "run_id": run_id, "at": time.time()}, f)
+            return True
+        except FileExistsError:
+            try:
+                info = json.loads(lock.read_text())
+                pid, at = int(info["pid"]), float(info["at"])
+            except (OSError, ValueError, KeyError, TypeError):
+                pid, at = -1, 0.0
+            if pid != os.getpid() and pid > 0 and _alive(pid) and time.time() - at < LIVE_LOCK_STALE_S:
+                return False
+            try:  # stale, ours (an unclosed earlier run in this process), or unreadable
+                lock.unlink()
+            except OSError:
+                pass
+        except OSError:
+            return True
+    return True
+
+
+def release_live(root: Path, run_id: str) -> None:
+    lock = root / "live.lock"
+    try:
+        info = json.loads(lock.read_text())
+        if info.get("run_id") == run_id and int(info.get("pid", -1)) == os.getpid():
+            lock.unlink()
+    except (OSError, ValueError, TypeError):
+        pass
+
+
 class EventSink:
     """Append-only event log plus latest frame for one run. Thread-safe; never raises into the call."""
 
     FRAME_INTERVAL = 0.2  # seconds between frame.jpg writes
 
     def __init__(self, run_id: str, source: str, root: Path = RUNS) -> None:
-        self.run_id, self.source = run_id, source
-        self.live = root / "live"
-        self.archive = root / run_id
+        self.run_id, self.source, self.root = run_id, source, root
+        self.is_live = take_live(root, run_id)
+        self.live = root / "live" if self.is_live else root / run_id
+        self.archive = root / run_id if self.is_live else None
+        if not self.is_live:
+            import logging
+
+            logging.getLogger("onset.events").warning(
+                "[onset] another call is running and owns runs/live; this run (%s) writes to %s", run_id, self.live)
         self._lock = threading.Lock()
         self._t0 = time.monotonic()
         self._last_frame = 0.0
@@ -149,9 +211,17 @@ class EventSink:
             if self._events is not None:
                 self._events.close()
                 self._events = None
+        if self.archive is None:  # not the live run: it already wrote to runs/<id>/
+            try:
+                (self.live / "caregiver_link.txt").unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
         try:
             if self.archive.exists():
                 shutil.rmtree(self.archive)
             shutil.copytree(self.live, self.archive, ignore=shutil.ignore_patterns("caregiver_link.txt"))
         except OSError:
             pass
+        finally:
+            release_live(self.root, self.run_id)

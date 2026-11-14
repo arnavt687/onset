@@ -61,30 +61,59 @@ VOICE_STYLE = "Calm, warm and slow. Plain words. Speak to an older adult."
 ELEVEN_DEFAULT_VOICE = "EXAVITQu4vr4xnSDxMaL"
 
 
+def _eleven_tts():
+    key = os.environ.get("ELEVEN_API_KEY") or os.environ.get("ELEVENLABS_API_KEY")
+    if not key:
+        return None
+    return elevenlabs.TTS(
+        api_key=key,
+        voice_id=os.environ.get("ELEVEN_VOICE_ID", ELEVEN_DEFAULT_VOICE),
+        model=os.environ.get("ELEVEN_MODEL", "eleven_turbo_v2_5"),
+        voice_settings=elevenlabs.VoiceSettings(
+            stability=0.75,  # steady, even delivery
+            similarity_boost=0.75,
+            speed=float(os.environ.get("ELEVEN_SPEED", "0.9")),  # a little slower than normal
+        ),
+    )
+
+
+def _gemini_tts():
+    if not os.environ.get("GOOGLE_API_KEY"):
+        return None
+    # Gemini's speech settings exist only in API v1beta; without this the SDK
+    # can call v1 and Google answers 400 "Unknown name speechConfig".
+    os.environ.setdefault("GOOGLE_GENAI_API_VERSION", "v1beta")
+    return google.beta.GeminiTTS(
+        model=os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts"),
+        voice_name=os.environ.get("GEMINI_VOICE", "Sulafat"),  # a warm voice
+        instructions=VOICE_STYLE,
+    )
+
+
+def _openai_tts():
+    return openai.TTS(model="gpt-4o-mini-tts", voice="coral", instructions=VOICE_STYLE)
+
+
 def make_tts():
     """The first configured voice: ElevenLabs, then Gemini, then OpenAI."""
-    eleven_key = os.environ.get("ELEVEN_API_KEY") or os.environ.get("ELEVENLABS_API_KEY")
-    if eleven_key:
-        return elevenlabs.TTS(
-            api_key=eleven_key,
-            voice_id=os.environ.get("ELEVEN_VOICE_ID", ELEVEN_DEFAULT_VOICE),
-            model=os.environ.get("ELEVEN_MODEL", "eleven_turbo_v2_5"),
-            voice_settings=elevenlabs.VoiceSettings(
-                stability=0.75,  # steady, even delivery
-                similarity_boost=0.75,
-                speed=float(os.environ.get("ELEVEN_SPEED", "0.9")),  # a little slower than normal
-            ),
-        )
-    if os.environ.get("GOOGLE_API_KEY"):
-        # Gemini's speech settings exist only in API v1beta; without this the SDK
-        # can call v1 and Google answers 400 "Unknown name speechConfig".
-        os.environ.setdefault("GOOGLE_GENAI_API_VERSION", "v1beta")
-        return google.beta.GeminiTTS(
-            model=os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts"),
-            voice_name=os.environ.get("GEMINI_VOICE", "Sulafat"),  # a warm voice
-            instructions=VOICE_STYLE,
-        )
-    return openai.TTS(model="gpt-4o-mini-tts", voice="coral", instructions=VOICE_STYLE)
+    return _eleven_tts() or _gemini_tts() or _openai_tts()
+
+
+def make_tts_chain() -> list:
+    """Every configured voice, best first: the first speaks, the others take over a line when
+    it fails or is slow (onset.voice.Speaker). Never empty."""
+    chain = []
+    for build, needs in ((_eleven_tts, None), (_gemini_tts, None), (_openai_tts, "OPENAI_API_KEY")):
+        if needs and not os.environ.get(needs):
+            continue
+        try:
+            engine = build()
+        except Exception as e:  # noqa: BLE001 - a voice whose plugin cannot start is skipped
+            logging.getLogger("onset").warning("[onset] a voice could not start: %s", type(e).__name__)
+            continue
+        if engine is not None:
+            chain.append(engine)
+    return chain or [make_tts()]
 
 
 log = logging.getLogger("onset")
@@ -95,6 +124,8 @@ OUT_H = int(os.environ.get("OUT_HEIGHT", "360"))
 SEND_FPS = 15
 # How long after bridge_ready to wait for the caller's camera before declaring it missing.
 CALLER_VIDEO_GRACE_S = 10.0
+# Log loudly when the greeting starts later than this after bridge_ready (Chert's limit: 10 s).
+GREET_WARN_S = 6.0
 
 # ONSET_HEALTH_PORT lets a second agent (tests, a parallel experiment) run beside the live one.
 server = AgentServer(**({"port": int(os.environ["ONSET_HEALTH_PORT"])} if os.environ.get("ONSET_HEALTH_PORT") else {}))
@@ -218,7 +249,12 @@ class CallMedia:
                 if self.on_tick is not None:
                     self.on_tick(now)
                 fresh = self.latest is not None and now - self.last_caller_frame <= 1.0
-                img = self.flow.render(self.latest if fresh else None, now) if (fresh or self.flow.state != "idle") else placeholder(n)
+                if fresh or self.flow.state != "idle":
+                    # Rendering (captions, landmarks, the dashboard JPEG) runs off the event
+                    # loop: on it, it starved the agent's audio playout and speech fell behind.
+                    img = await asyncio.to_thread(self.flow.render, self.latest if fresh else None, now)
+                else:
+                    img = placeholder(n)
                 send(self.source, img)
             except Exception:  # noqa: BLE001 - keep the video alive whatever happens
                 log.exception("[onset] send tick failed")
@@ -317,7 +353,7 @@ class Escalation:
         first = caregiver.first_name(self.patient.name)
         await self._attrs(outcome=self.outcome, summary=summary, relay="off", patient=first)
         invite = None
-        if self.cfg.join == "link":
+        if self.cfg.join == "link" and not (flow is not None and flow.caller_gone):
             try:
                 invite = caregiver.make_invite(
                     self.ctx.room.name, self.run_id, livekit_url=os.environ.get("LIVEKIT_URL", ""),
@@ -374,8 +410,10 @@ class Escalation:
                     yield ev.frame
 
             try:
+                log.info("[onset] relaying the caregiver's voice to the caller")
                 handle = self.session.say(" ", audio=frames(), allow_interruptions=False, add_to_chat_ctx=False)
                 await handle.wait_for_playout()
+                log.info("[onset] caregiver relay ended")
             except Exception:  # noqa: BLE001
                 log.exception("[onset] caregiver relay failed")
             finally:
@@ -400,7 +438,8 @@ async def entry(ctx: JobContext) -> None:
     # audio AND video so the caller's camera and microphone reach us.
     await ctx.connect(auto_subscribe=AutoSubscribe.SUBSCRIBE_ALL)
 
-    tts = make_tts()
+    voices = make_tts_chain()
+    tts, fallbacks = voices[0], voices[1:]
     from onset.decide import load_baseline
     from onset.speech import SENTENCES
 
@@ -410,7 +449,7 @@ async def entry(ctx: JobContext) -> None:
         b = None if patient.anonymous else load_baseline(patient.id)
     except Exception:  # noqa: BLE001
         b = None
-    warm_speaker = Speaker(tts)
+    warm_speaker = Speaker(tts, fallbacks=fallbacks)
     warm = asyncio.create_task(warm_speaker.warm(script.all_spoken(
         b.sentence if b else (patient.sentence or SENTENCES[0]))))
 
@@ -436,11 +475,23 @@ async def entry(ctx: JobContext) -> None:
         track, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_CAMERA)
     )
 
-    session = AgentSession(tts=tts)
+    # No TTS in the session: Onset synthesizes every line itself (onset.voice, with fallbacks)
+    # and hands the session finished audio. A TTS shared with the session would let three
+    # provider errors close the session (max_unrecoverable_errors) and silence the call.
+    session = AgentSession()
     session.on("agent_state_changed", lambda ev: log.info("[onset] agent state %s -> %s", ev.old_state, ev.new_state))
     session.on("error", lambda ev: log.error("[onset] SESSION ERROR from %s: %r", type(ev.source).__name__, ev.error))
 
+    timing = {"ready": None, "greeted": False}
+
     async def play(text: str, pcm: bytes, rate: int) -> None:
+        if not timing["greeted"] and timing["ready"] is not None:
+            # Chert hangs up if the agent is silent for 10 s after bridge_ready.
+            timing["greeted"] = True
+            latency = time.monotonic() - timing["ready"]
+            (log.warning if latency > GREET_WARN_S else log.info)(
+                "[onset] greeting starts %.2f s after bridge_ready (Chert's limit is 10 s)", latency)
+            sink.emit("greeting", latency_s=round(latency, 3), limit_s=10.0)
         samples = np.frombuffer(pcm, dtype=np.int16)
         step = rate // 50  # 20 ms frames
 
@@ -452,7 +503,7 @@ async def entry(ctx: JobContext) -> None:
         handle = session.say(text, audio=frames(), allow_interruptions=False, add_to_chat_ctx=False)
         await handle.wait_for_playout()
 
-    speaker = Speaker(tts, sink=sink, play=play)
+    speaker = Speaker(tts, sink=sink, play=play, fallbacks=fallbacks)
     esc = Escalation(ctx, session, sink, run_id, patient)
     flow = CheckFlow(sink=sink, say=speaker.say, recorder=recorder, run_id=run_id, source="call",
                      out_size=(OUT_W, OUT_H), patient_id=patient.id,
@@ -496,6 +547,17 @@ async def entry(ctx: JobContext) -> None:
 
     ctx.room.on("participant_connected", on_joined)
     ctx.room.on("participant_disconnected", on_left)
+
+    # Network blips: LiveKit resumes the connection by itself; the flow keeps its clock and
+    # state, and the caller's tracks are read again when they are re-subscribed.
+    def on_conn(status: str):
+        def handler(*_a) -> None:
+            log.warning("[onset] connection %s", status) if status != "reconnected" else log.info("[onset] connection reconnected")
+            sink.emit("connection", status=status)
+        return handler
+
+    ctx.room.on("reconnecting", on_conn("reconnecting"))
+    ctx.room.on("reconnected", on_conn("reconnected"))
     ctx.room.on("local_track_subscribed", lambda pub: log.info(
         "[onset] the caller side subscribed to our %s track", rtc.TrackKind.Name(pub.kind) if hasattr(pub, "kind") else pub))
     for pub in caller.track_publications.values():
@@ -503,6 +565,16 @@ async def entry(ctx: JobContext) -> None:
             on_track(pub.track, pub, caller)
 
     async def shutdown(reason: str = "") -> None:
+        # Hung up during "One moment": every check is in, so decide anyway. On a change the
+        # caregiver must still hear about it, even though the caller can no longer.
+        flow.hangup(time.monotonic())
+        if not flow.done and (flow.needs_evaluation or evaluating["task"] is not None):
+            log.info("[onset] the caller left before the decision: finishing it")
+            try:
+                task = evaluating["task"] or asyncio.ensure_future(flow.evaluate())
+                await asyncio.wait_for(asyncio.shield(task), 30)
+            except Exception:  # noqa: BLE001
+                log.exception("[onset] the decision after hang-up failed")
         flow.abort("caller left" if not flow.done else "complete")
         # An escalation keeps going after the caller hangs up: the caregiver still gets the text.
         await flow.wait_background(timeout=45)
@@ -538,7 +610,8 @@ async def entry(ctx: JobContext) -> None:
         if flow.state != "idle" or not bridge_ready(ctx.room.metadata):
             return
         log.info("[onset] FaceTime is ready: starting the check")
-        flow.start(time.monotonic())
+        timing["ready"] = time.monotonic()
+        flow.start(timing["ready"])
         media.spawn(watch_for_caller_video())
 
     async def watch_for_caller_video() -> None:

@@ -87,24 +87,98 @@ async def synthesize(tts, text: str) -> bytes:
     return pcm
 
 
-class Speaker:
-    """Serial, non-blocking speech for one run."""
+def _voice_name(engine) -> str:
+    """'elevenlabs', 'google', 'openai'... for logs."""
+    parts = type(engine).__module__.split(".")
+    return parts[2] if len(parts) > 2 and parts[:2] == ["livekit", "plugins"] else type(engine).__name__
 
-    def __init__(self, tts=None, *, sink=None, play: PlayFn | None = None, enabled: bool = True) -> None:
+
+def chime(seconds: float = 0.7) -> bytes:
+    """A soft two-note chime (24 kHz PCM): the last resort when every voice fails, so the call
+    still hears Onset within Chert's 10-second greeting deadline (the caption carries the words)."""
+    n = int(RATE * seconds)
+    t = np.arange(n) / RATE
+    half = n // 2
+    f = np.where(np.arange(n) < half, 660.0, 880.0)
+    env = np.minimum(1.0, np.minimum(t, seconds - t) * 20.0)
+    return (3000 * env * np.sin(2 * np.pi * f * t)).astype(np.int16).tobytes()
+
+
+TTS_TIMEOUT_S = float(os.environ.get("ONSET_TTS_TIMEOUT_S", "6"))
+# The first line of a call (the greeting) must start within Chert's 10 s of bridge_ready: all
+# voices together get this long before the chime plays instead.
+FIRST_LINE_BUDGET_S = float(os.environ.get("ONSET_GREETING_BUDGET_S", "5"))
+
+
+class Speaker:
+    """Serial, non-blocking speech for one run.
+
+    `fallbacks` are further TTS engines tried in order when the main one fails or takes longer
+    than `timeout_s` for a line; when all fail, a soft chime plays instead (the caption still
+    shows the words), so the caller never gets silence where a line should be.
+    """
+
+    def __init__(self, tts=None, *, sink=None, play: PlayFn | None = None, enabled: bool = True,
+                 fallbacks=(), timeout_s: float | None = None) -> None:
         self.tts, self.sink, self.play, self.enabled = tts, sink, play, enabled and tts is not None
-        self._queue: asyncio.Queue[str | None] = asyncio.Queue()
+        self.fallbacks = [f for f in fallbacks if f is not None and f is not tts]
+        self.timeout_s = TTS_TIMEOUT_S if timeout_s is None else timeout_s
+        self._queue: asyncio.Queue[tuple[str, Callable[[], None] | None] | None] = asyncio.Queue()
         self._task: asyncio.Task | None = None
+        self._first = True
+        self._failures: dict[int, int] = {}  # engine id -> failures this run
+
+    # After this many failures in one call an engine is skipped for the rest of it, so a dead
+    # provider costs each line nothing instead of a timeout.
+    MAX_FAILURES = 2
+
+    async def synth(self, text: str, budget_s: float | None = None) -> bytes:
+        """Audio for one line: the cache, the main voice, each fallback, then the chime.
+        `budget_s` caps the time for all voices together."""
+        loop = asyncio.get_running_loop()
+        end = loop.time() + budget_s if budget_s is not None else None
+        engines = [self.tts, *self.fallbacks]
+        live = [e for e in engines if self._failures.get(id(e), 0) < self.MAX_FAILURES] or engines[-1:]
+        for engine in live:
+            timeout = self.timeout_s if end is None else min(self.timeout_s, end - loop.time())
+            if timeout <= 0.05:
+                break
+            # Not wait_for: a TTS plugin may keep retrying while it is cancelled, which would
+            # hold the line hostage. The abandoned attempt finishes (or fails) on its own.
+            task = asyncio.ensure_future(synthesize(engine, text))
+            done, _ = await asyncio.wait({task}, timeout=timeout)
+            try:
+                if not done:
+                    task.cancel()
+                    task.add_done_callback(lambda t: t.cancelled() or t.exception())
+                    raise TimeoutError(f"no audio within {timeout:.1f} s")
+                pcm = task.result()
+                if pcm:
+                    self._failures[id(engine)] = 0
+                    return pcm
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001 - includes the timeout
+                self._failures[id(engine)] = self._failures.get(id(engine), 0) + 1
+                log.warning("[onset] voice %s failed for %r (%s); trying the next one",
+                            _voice_name(engine),
+                            text[:40], type(e).__name__)
+        log.error("[onset] every voice failed for %r: playing a chime instead", text[:40])
+        return chime()
 
     def start(self) -> None:
         if self._task is None:
             self._task = asyncio.create_task(self._run(), name="onset-speaker")
 
-    def say(self, text: str) -> None:
+    def say(self, text: str, on_done: Callable[[], None] | None = None) -> None:
+        """Queue a line. `on_done` runs once it has played (or failed to)."""
         if not text:
+            if on_done:
+                on_done()
             return
         if self._task is None:
             self.start()
-        self._queue.put_nowait(text)
+        self._queue.put_nowait((text, on_done))
 
     async def warm(self, texts: list[str]) -> None:
         """Fill the cache ahead of the call, so the greeting starts instantly."""
@@ -118,29 +192,39 @@ class Speaker:
 
     async def _run(self) -> None:
         while True:
-            text = await self._queue.get()
-            if text is None:
+            item = await self._queue.get()
+            if item is None:
                 return
-            rel = None
-            pcm = b""
-            if self.enabled:
-                try:
-                    pcm = await synthesize(self.tts, text)
-                except Exception:  # noqa: BLE001
-                    log.exception("[onset] TTS failed for %r", text[:40])
-            if pcm and self.sink is not None:
-                try:
-                    path, rel = self.sink.audio_path()
-                    write_wav(path, pcm)
-                except Exception:  # noqa: BLE001
-                    rel = None
-            if self.sink is not None:
-                self.sink.emit("say", text=text, audio=rel)
-            if pcm and self.play is not None:
-                try:
-                    await self.play(text, pcm, RATE)
-                except Exception:  # noqa: BLE001
-                    log.exception("[onset] playback failed")
+            text, on_done = item
+            try:
+                await self._one(text)
+            finally:
+                if on_done is not None:
+                    try:
+                        on_done()
+                    except Exception:  # noqa: BLE001
+                        log.exception("[onset] on_done failed")
+
+    async def _one(self, text: str) -> None:
+        rel = None
+        pcm = b""
+        if self.enabled:
+            budget = FIRST_LINE_BUDGET_S if self._first else None
+            self._first = False
+            pcm = await self.synth(text, budget)
+        if pcm and self.sink is not None:
+            try:
+                path, rel = self.sink.audio_path()
+                write_wav(path, pcm)
+            except Exception:  # noqa: BLE001
+                rel = None
+        if self.sink is not None:
+            self.sink.emit("say", text=text, audio=rel)
+        if pcm and self.play is not None:
+            try:
+                await self.play(text, pcm, RATE)
+            except Exception:  # noqa: BLE001
+                log.exception("[onset] playback failed")
 
     async def aclose(self) -> None:
         if self._task is not None:
