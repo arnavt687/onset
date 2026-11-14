@@ -5,7 +5,7 @@ The orchestrator keeps this file current.
 
 **Project status:** IN PROGRESS   <!-- the resume job stops nudging only when this says COMPLETE -->
 
-**Waiting on user:** yes (user must drag onset-demo-v2.mp4 into the open YouTube Studio upload dialog; Chrome upload tool caps at 10 MB). USER APPROVED (14 Nov): orchestrator uploads video v2 to the user's YouTube as UNLISTED, puts the link in Devpost, makes sure satvikranga60@gmail.com is on the team. Do NOT click Submit; the user submits.   <!-- when "yes", the resume job leaves the orchestrator alone -->
+**Waiting on user:** yes (Devpost 4/5, ready for review: user ticks rules box + Submit before noon ET. Video https://youtu.be/L58lr_4DPik unlisted, 2:17; Devpost says <2 min, user decides). USER APPROVED (14 Nov): orchestrator uploads video v2 to the user's YouTube as UNLISTED, puts the link in Devpost, makes sure satvikranga60@gmail.com is on the team. Do NOT click Submit; the user submits.   <!-- when "yes", the resume job leaves the orchestrator alone -->
 
 ## Sessions the resume job watches
 
