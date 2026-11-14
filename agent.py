@@ -49,7 +49,7 @@ REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))  # tools.record, when run from another directory
 load_dotenv(REPO / ".env.local")
 
-from onset import caregiver, overlay, patients, script  # noqa: E402
+from onset import caregiver, overlay, patients, script, worker  # noqa: E402
 from onset.events import EventSink  # noqa: E402
 from onset.flow import CheckFlow  # noqa: E402
 from onset.voice import Speaker  # noqa: E402
@@ -151,8 +151,10 @@ CALLER_VIDEO_GRACE_S = 10.0
 # Log loudly when the greeting starts later than this after bridge_ready (Chert's limit: 10 s).
 GREET_WARN_S = 6.0
 
-# ONSET_HEALTH_PORT lets a second agent (tests, a parallel experiment) run beside the live one.
-server = AgentServer(**({"port": int(os.environ["ONSET_HEALTH_PORT"])} if os.environ.get("ONSET_HEALTH_PORT") else {}))
+# Sized for one line on a laptop, the same in `start` and `dev` (onset/worker.py, issue #28):
+# one idle process, never "at full capacity", any free health port (ONSET_HEALTH_PORT pins one).
+SERVER_OPTIONS = worker.server_options()
+server = AgentServer(**SERVER_OPTIONS)
 
 
 # --------------------------------------------------------------------------- helpers
@@ -517,6 +519,7 @@ async def entry(ctx: JobContext) -> None:
             video_encoding=rtc.VideoEncoding(max_bitrate=VIDEO_BITRATE, max_framerate=SEND_FPS),
         ),
     )
+    log.info("[onset] worker: %s", worker.describe(SERVER_OPTIONS))
     log.info("[onset] sending %dx%d video @ %d fps, %d kbps, simulcast %s", OUT_W, OUT_H, SEND_FPS,
              VIDEO_BITRATE // 1000, "on" if SIMULCAST else "off")
 

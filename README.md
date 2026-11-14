@@ -72,9 +72,9 @@ tools/demo.sh --check        # tools/doctor.py: keys, voice, models, LiveKit, th
 ```
 
 ```bash
-tools/demo.sh                       # checks (stops on FAIL), then agent + chert dev + dashboard
-.venv/bin/python agent.py start     # or by hand, terminal 1: the agent
-tools/chert.sh dev                  # terminal 2: connects it to the Chert line
+tools/demo.sh                       # checks (stops on FAIL; --force starts anyway), then agent + chert dev + dashboard
+.venv/bin/python agent.py dev       # or by hand, terminal 1: the agent (`start` works too)
+tools/chert.sh dev                  # terminal 2: connects it to the line (adds --agent and --env-file .env.local)
 tools/stop.sh                       # stops both (Ctrl+C releases the line)
 ```
 

@@ -286,9 +286,11 @@ def line(lid="11111111-2222-4333-8444-555555555555", audio=True, video=True, nam
 def test_line_readiness_parsing():
     assert doctor.line_readiness(lines_body(line()))[0].status == PASS
     silent = doctor.line_readiness(lines_body(line(audio=False)))[0]
-    assert silent.status == FAIL and "docs/chert-audio.md" in silent.detail and "audio_ready false" in silent.detail
+    # A loud WARN, not a FAIL: only Chert can change it, so it must not stop tools/demo.sh (issue #28)
+    assert silent.status == WARN and "docs/chert-audio.md" in silent.detail and "audio_ready false" in silent.detail
+    assert "test call" in silent.detail
     assert doctor.line_readiness(lines_body(line(video=False)))[0].status == WARN
-    assert doctor.line_readiness(lines_body(line(audio=None)))[0].status == FAIL
+    assert doctor.line_readiness(lines_body(line(audio=None)))[0].status == WARN
     assert doctor.line_readiness(lines_body())[0].status == FAIL
     assert doctor.line_readiness({"weird": 1})[0].status == WARN
     masked = doctor.line_readiness(lines_body(line(name="Kim (+15551230099)")))[0].detail
@@ -316,7 +318,7 @@ def test_video_framing_fill_needs_an_upright_picture():
 def test_line_readiness_pinned_and_multiple_lines():
     a, b = line("aaaaaaaa-2222-4333-8444-555555555555"), line("bbbbbbbb-2222-4333-8444-555555555555", audio=False)
     both = doctor.line_readiness(lines_body(a, b))
-    assert [c.status for c in both] == [PASS, FAIL, WARN]
+    assert [c.status for c in both] == [PASS, WARN, WARN]
     assert [c.status for c in doctor.line_readiness(lines_body(a, b), a["id"])] == [PASS]
     assert doctor.line_readiness(lines_body(a), "cccccccc-2222-4333-8444-555555555555")[0].status == FAIL
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stop chert dev (Ctrl+C: frees the line) and the Onset agent.
 DEV='node .*/chert dev'
-AGENT='python agent.py start'
+AGENT='python[0-9.]* agent.py (start|dev)'
 
 wait_gone() { for _ in $(seq 1 "$2"); do pgrep -f "$1" >/dev/null || return 0; sleep 1; done; return 1; }
 

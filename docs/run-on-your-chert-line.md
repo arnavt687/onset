@@ -17,9 +17,10 @@ most of it creating keys. Everything below runs in a terminal on Linux, WSL Ubun
 | A Chert account with a line | Your FaceTime number; a Mac on Chert's side bridges the call | [trychert.com](https://trychert.com), `tools/chert.sh onboard` |
 | An iPhone or Mac with FaceTime | To call the line | |
 
-**The line's Mac must report `audio_ready: true`.** With `false`, calls connect but are silent in
-both directions and nothing on your side can fix it (see [chert-audio.md](chert-audio.md)).
-`tools/demo.sh --check` reads this for you (the `line readiness` row).
+**The line's Mac should report `audio_ready: true`.** On one line, `false` meant calls connected
+but were silent in both directions, and nothing on your side could fix it (see
+[chert-audio.md](chert-audio.md)); another line reports `false` and works. `tools/demo.sh --check`
+reads it for you (the `line readiness` row, a WARN): make a test call to be sure.
 
 ## 1. Clone and set up
 
@@ -133,7 +134,7 @@ Each row is PASS, WARN (works, but read it), FAIL (fix before calling) or SKIP (
 | `mediapipe models` | Both models exist and load | Delete `models/` and run `tools/setup.sh` |
 | `voice (tts)` | Synthesizes the greeting once and caches it, so Onset greets within Chert's 10 s window | The key, or the voice settings |
 | `chert session`, `chert line`, `chert worker`, `chert line_free`, `chert minutes`, `chert clock` | From `tools/chert.sh doctor`: signed in, the line and its Mac are up, no other session holds the line, minutes left | `tools/chert.sh login`; wait for another session to end |
-| `line readiness` | The line's Mac reports `audio_ready` and `video_ready` (Chert API, with your project key or the CLI sign-in) | `audio_ready false`: only Chert can fix it ([chert-audio.md](chert-audio.md)) |
+| `line readiness` | The line's Mac reports `audio_ready` and `video_ready` (Chert API, with your project key or the CLI sign-in). WARN only: the flag has been wrong | `audio_ready false`: make a test call; if it is silent, only Chert can fix it ([chert-audio.md](chert-audio.md)) |
 | `video framing` | The line's `video_framing` against the picture Onset sends: `fill` crops a wide picture to its middle third | Remove `ONSET_FRAME=landscape` ([video-framing.md](video-framing.md)) |
 | `clock (ntp)` | Offset from an NTP server; FAIL over 0.25 s, WARN over 0.1 s | Step 5 |
 | `livekit reachable` | The LiveKit keys work (lists rooms) | Wrong key, secret or URL, or keys from another project |
@@ -147,9 +148,13 @@ tools/demo.sh              # add --open on WSL to open the dashboard in the Wind
 ```
 
 It runs the doctor with `--warm` (every scripted line goes into the voice cache, a few seconds
-the first time), stops on any FAIL, then starts the agent, connects the line (`chert dev`), starts
-the dashboard and prints the number to call. Ctrl+C stops all three and releases the line. Logs
-are in `runs/demo-logs/`.
+the first time), stops on any FAIL (`--force` starts anyway), then starts the agent, connects the
+line (`chert dev --agent <AGENT_NAME> --env-file .env.local`), starts the dashboard and prints the
+number to call. Ctrl+C stops all three and releases the line. Logs are in `runs/demo-logs/`.
+
+By hand, in three terminals: `.venv/bin/python agent.py dev`, `.venv/bin/python tools/dashboard.py`
+and `tools/chert.sh dev` (it adds `--agent` and `--env-file .env.local` for you). Wait for
+`agent_warm` before calling.
 
 ## 8. FaceTime the line
 
@@ -208,6 +213,8 @@ Until `ONSET_LIVE_ACTIONS=1`, every action is a dry run: logged and shown on the
 | The call connects but is silent both ways; the agent hears silence | The line's Mac has `audio_ready: false` | `line readiness` row; only Chert can fix it ([chert-audio.md](chert-audio.md)) |
 | Calls are declined or end at once | Clock more than 0.25 s ahead | `clock (ntp)` row; step 5 |
 | The call connects but Onset never greets | `chert dev` sends calls to a different `AGENT_NAME` than the running agent, or the agent is not running | Start both with `tools/demo.sh` from the same checkout |
+| `chert dev` says `agent_not_warm`, `"my-agent" is NOT in the waiting room` | The CLI was started without `--agent` and `--env-file` | Use `tools/chert.sh dev` from this checkout: it adds both |
+| `agent_not_warm` and the agent log says `worker is at full capacity` | An old checkout: LiveKit's `start` mode refuses work above 0.7 CPU load | `git pull` (the worker now never refuses a call: `ONSET_LOAD_THRESHOLD`, `ONSET_IDLE_PROCESSES` in `.env.example`) |
 | The greeting comes late, then the call drops | The greeting was not cached, so it was synthesized during Chert's 10 s window | `tools/doctor.py --warm` (`tools/demo.sh` does it) |
 | Onset sees no video, everything ends "unclear" | The call was FaceTime Audio, or `video_ready` is false | Call with FaceTime Video; `line readiness` row |
 | Every sentence step is "unclear" | No ElevenLabs key, or Scribe rejected it | `scribe key` and `elevenlabs key` rows |

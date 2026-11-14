@@ -6,8 +6,9 @@
 #   tools/demo.sh --replay DIR [-- --fast --no-voice ...]
 #                                 dashboard + tools/replay_flow.py DIR (no call, no Chert line);
 #                                 anything after -- goes to replay_flow.py
-# Options: --port N (dashboard, default 8765)  --open (open the dashboard in the Windows browser)
-#          --skip-clock (start even if a clock check fails)
+# Options: --port N (dashboard, default 8765)  --open (open the dashboard in the browser)
+#          --skip-clock (start even if a clock check fails)  --force (start even if any check fails)
+#          --dev (run the agent as `agent.py dev`: debug logs; the worker is sized the same either way)
 #
 # Never prints key values: tools/doctor.py reports names only, masks phone numbers and never shows
 # the signed-in Chert account. Python: $PY, else this checkout's .venv (tools/setup.sh), else ~/onset/.venv.
@@ -29,7 +30,9 @@ LOGS=$ROOT/runs/demo-logs
 STAMP=$(date +%Y%m%d-%H%M%S)
 
 REPLAY_ARGS=()
-usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; }
+FORCE=0
+AGENT_MODE=start
+usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; }
 say() { printf '\033[1m[demo]\033[0m %s\n' "$*"; }
 die() { printf '\033[31m[demo] %s\033[0m\n' "$*" >&2; exit 1; }
 
@@ -41,6 +44,8 @@ while [ $# -gt 0 ]; do
     --port) PORT=${2:-}; [[ "$PORT" =~ ^[0-9]+$ ]] || die "--port needs a number"; shift ;;
     --open) OPEN=1 ;;
     --skip-clock) SKIP_CLOCK=1 ;;
+    --force) FORCE=1 ;;
+    --dev) AGENT_MODE=dev ;;
     --) shift; REPLAY_ARGS=("$@"); break ;;
     *) usage >&2; die "unknown option: $1" ;;
   esac
@@ -65,7 +70,27 @@ run_doctor() {
 }
 
 already_running() {
-  pgrep -af 'python agent.py start|node .*/chert dev|tools/dashboard.py' | grep -v pgrep || true
+  pgrep -af 'python[0-9.]* agent.py (start|dev)|node .*/chert dev|tools/dashboard.py' | grep -v pgrep || true
+}
+
+# The agent name, resolved the way agent.py does: the environment, then .env.local, then "onset".
+# tools/chert.sh dev passes the same name (and .env.local) to the Chert CLI.
+agent_name() {
+  "$PY" - <<'PY' 2>/dev/null || echo onset
+import os
+from dotenv import dotenv_values
+print(os.environ.get("AGENT_NAME") or dotenv_values(".env.local").get("AGENT_NAME") or "onset")
+PY
+}
+
+# Start a command in its own session, so its pid is its process group id. Call as `spawn ... &`:
+# exec keeps $! the command's own pid (without it, $! is the subshell's). macOS has no setsid(1).
+spawn() {
+  if command -v setsid >/dev/null 2>&1; then
+    exec setsid "$@"
+  else
+    exec "$PY" -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "$@"
+  fi
 }
 
 # ---------------------------------------------------------------- processes
@@ -89,7 +114,7 @@ start_dashboard() {
   if curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
     die "something already answers on port $PORT (a dashboard from an earlier run? tools/stop.sh does not stop it: pkill -f tools/dashboard.py)"
   fi
-  setsid "$PY" tools/dashboard.py --port "$PORT" >"$LOGS/dashboard-$STAMP.log" 2>&1 </dev/null &
+  spawn "$PY" tools/dashboard.py --port "$PORT" >"$LOGS/dashboard-$STAMP.log" 2>&1 </dev/null &
   PIDS_DASH=$!
   local i
   for i in $(seq 1 20); do
@@ -134,6 +159,10 @@ open_browser() {
   [ "$OPEN" = 1 ] || return 0
   if command -v cmd.exe >/dev/null 2>&1; then
     (cd /mnt/c 2>/dev/null && cmd.exe /c start "" "http://localhost:$PORT" >/dev/null 2>&1) || true
+  elif [ "$(uname -s)" = Darwin ]; then
+    open "http://localhost:$PORT" >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "http://localhost:$PORT" >/dev/null 2>&1 || true
   fi
 }
 
@@ -174,11 +203,18 @@ fi
 r=$(already_running)
 [ -n "$r" ] && { echo "$r" >&2; die "agent, chert dev or a dashboard is already running: stop it first (tools/stop.sh, pkill -f tools/dashboard.py)"; }
 # --warm puts every scripted line in the TTS cache, so Onset greets within Chert's 10 s deadline.
-run_doctor --warm || die "fix the FAIL lines above, then run again (tools/demo.sh --check re-checks; a busy line_free means another chert dev session holds the line: this script never uses --takeover)"
+if ! run_doctor --warm; then
+  if [ "$FORCE" = 1 ]; then
+    say "starting anyway (--force): read the FAIL lines above"
+  else
+    die "fix the FAIL lines above, then run again (tools/demo.sh --check re-checks; --force starts anyway; a busy line_free means another chert dev session holds the line: this script never uses --takeover)"
+  fi
+fi
 trap stop_all INT TERM
+AGENT=$(agent_name)
 
-say "starting the agent (log: $LOGS/agent-$STAMP.log)..."
-setsid "$PY" agent.py start >"$LOGS/agent-$STAMP.log" 2>&1 </dev/null &
+say "starting the agent as \"$AGENT\" (agent.py $AGENT_MODE; log: $LOGS/agent-$STAMP.log)..."
+spawn "$PY" agent.py "$AGENT_MODE" >"$LOGS/agent-$STAMP.log" 2>&1 </dev/null &
 PIDS_AGENT=$!
 wait_for "$LOGS/agent-$STAMP.log" "registered worker" 60 "$PIDS_AGENT"
 case $? in
@@ -187,24 +223,46 @@ case $? in
   *) tail -20 "$LOGS/agent-$STAMP.log" >&2; say "no 'registered worker' after 60 s"; stop_all ;;
 esac
 
-say "connecting the line (chert dev; log: $LOGS/chert-dev-$STAMP.log)..."
-setsid bash tools/chert.sh dev --json >"$LOGS/chert-dev-$STAMP.log" 2>&1 </dev/null &
-PIDS_DEV=$!
-for _ in $(seq 1 240); do
-  grep -q '"agent_warm"' "$LOGS/chert-dev-$STAMP.log" && break
-  if grep -qE '"(line_in_use|line_in_call|displaced|agent_not_warm|login_required)"' "$LOGS/chert-dev-$STAMP.log"; then
-    grep -E '"code"' "$LOGS/chert-dev-$STAMP.log" | "$PY" -c 'import json,re,sys
+chert_codes() {  # chert dev's coded records, account e-mails masked
+  grep -E '"code"' "$LOGS/chert-dev-$STAMP.log" | "$PY" -c 'import json,re,sys
 email = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
 for l in sys.stdin:
     try: r=json.loads(l)
     except ValueError: continue
     print(email.sub("<account>", "[demo]   chert: %s - %s" % (r.get("code"), r.get("message") or r.get("action") or "")))' >&2
-    say "chert dev cannot take the line"; stop_all
+}
+
+# --agent and --env-file are added by tools/chert.sh (issue #28): without them the CLI waits for
+# its starter's "my-agent" and has no LiveKit keys.
+say "connecting the line (chert dev --agent $AGENT --env-file .env.local; log: $LOGS/chert-dev-$STAMP.log)..."
+spawn bash tools/chert.sh dev --agent "$AGENT" --json >"$LOGS/chert-dev-$STAMP.log" 2>&1 </dev/null &
+PIDS_DEV=$!
+# agent_not_warm can be early (the agent is still taking the waiting-room job): wait it out for
+# NOT_WARM_GRACE_S before giving up. The others are final.
+NOT_WARM_GRACE_S=${NOT_WARM_GRACE_S:-60}
+warned=0
+for i in $(seq 1 240); do
+  grep -q '"agent_warm"' "$LOGS/chert-dev-$STAMP.log" && break
+  if grep -qE '"(line_in_use|line_in_call|displaced|login_required)"' "$LOGS/chert-dev-$STAMP.log"; then
+    chert_codes; say "chert dev cannot take the line"; stop_all
+  fi
+  if grep -q '"agent_not_warm"' "$LOGS/chert-dev-$STAMP.log"; then
+    if [ "$warned" = 0 ]; then
+      say "chert dev does not see \"$AGENT\" in the waiting room yet; waiting up to $NOT_WARM_GRACE_S s..."
+      warned=1
+    fi
+    if [ $(( i / 2 )) -ge "$NOT_WARM_GRACE_S" ]; then
+      chert_codes
+      grep -q 'full capacity' "$LOGS/agent-$STAMP.log" 2>/dev/null &&
+        say "the agent says it is at full capacity: set ONSET_LOAD_THRESHOLD=inf and ONSET_IDLE_PROCESSES=1 in .env.local"
+      say "the agent never took the waiting-room job (agent log: $LOGS/agent-$STAMP.log)"; stop_all
+    fi
   fi
   alive "$PIDS_DEV" || { tail -5 "$LOGS/chert-dev-$STAMP.log" >&2; say "chert dev exited"; stop_all; }
+  alive "$PIDS_AGENT" || { tail -20 "$LOGS/agent-$STAMP.log" >&2; say "the agent exited"; stop_all; }
   sleep 0.5
 done
-grep -q '"agent_warm"' "$LOGS/chert-dev-$STAMP.log" || { say "no agent_warm after 120 s"; stop_all; }
+grep -q '"agent_warm"' "$LOGS/chert-dev-$STAMP.log" || { chert_codes; say "no agent_warm after 120 s"; stop_all; }
 say "agent warm: the line is answering"
 
 start_dashboard

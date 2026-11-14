@@ -540,8 +540,11 @@ def line_readiness(body: Any, line_id: str | None = None, out_size: tuple[int, i
         facts = ", ".join(f"{k} {json.dumps(rd.get(k))}" for k in ("audio_ready", "video_ready", "facetime_signed_in"))
         facts += f", worker {health.get('status', '?')}"
         if rd.get("audio_ready") is not True:
-            out.append(Check(FAIL, "line readiness", f"{label}: {facts}. Calls will be silent both ways: only Chert "
-                                                     "can fix the Mac's audio (see docs/chert-audio.md)"))
+            # A WARN, not a FAIL (issue #28): only Chert can change it, and it is not a reliable
+            # signal. On one line it meant silent calls; another line reports false and works.
+            out.append(Check(WARN, "line readiness", f"{label}: {facts}. Chert says the Mac's audio is not ready: "
+                                                     "calls may be silent both ways. Make a test call before the "
+                                                     "demo; only Chert can fix it (see docs/chert-audio.md)"))
         elif rd.get("video_ready") is not True:
             out.append(Check(WARN, "line readiness", f"{label}: {facts}. The caller's camera may not reach Onset"))
         else:
