@@ -46,7 +46,13 @@ def main() -> None:
         ("close_unclear", script.CLOSE_UNCLEAR, "bottom", None, None),
         ("close_no_change", script.CLOSE_NO_CHANGE, "bottom", None, None),
         ("close_baseline", script.CLOSE_BASELINE_SAVED, "bottom", None, None),
+        ("arms_restart", script.ARMS_RESTART, "bottom", (2, "Arms"), None),
     ]
+    # Framing warnings (the camera cannot see the step), shown in the step's own layout.
+    for problem, line in script.ARMS_FRAMING.items():
+        cases.append((f"framing_arms_{problem}", line, "bottom", (2, "Arms"), None))
+    for problem, line in script.FACE_FRAMING.items():
+        cases.append((f"framing_face_{problem}", line, "bottom", (1, "Smile"), 0.5))
     for name, line, pos, prog, frac in cases:
         img = overlay.letterbox(scene(), W, H)
         layer, info = overlay.caption_layer(line.caption, W, H, pos)
@@ -58,7 +64,7 @@ def main() -> None:
             overlay.composite(img, overlay.pill_layer(f"Step {prog[0]} of 3 · {prog[1]}", W, H, other))
         path = out / f"{name}.png"
         cv2.imwrite(str(path), cv2.cvtColor(img, cv2.COLOR_RGBA2BGR))
-        print(f"{name:<16} size {info['size']:>3}px cap {info['cap']:>2}px lines {len(info['lines'])}  {path}")
+        print(f"{name:<28} size {info['size']:>3}px cap {info['cap']:>2}px lines {len(info['lines'])}  {path}")
 
 
 if __name__ == "__main__":

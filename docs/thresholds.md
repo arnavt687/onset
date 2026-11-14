@@ -186,6 +186,46 @@ baseline's, the step is UNCLEAR ("A different sentence was used than at the usua
 WER and the pause are still compared (a large error still escalates); rate and confidence are
 not, because they depend on the sentence.
 
+## Framing retries
+
+Before a step's quality is final, the call flow (`onset/flow.py`) checks whether the camera can
+see what the step measures. If it cannot, Onset shows and says how to fix the picture, then runs
+the step again. These are flow settings in `Timing`, not decision thresholds:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `max_reframes` | 2 per step | Retries for the face step and for the arm step. After the last one the step runs exactly as before, so a step that still cannot be read is UNCLEAR (caregiver + 911). |
+| `reframe_after_s` | 4.0 s | Arm step: time to read the line and raise the arms before any framing advice. |
+| `reframe_retry_s` | 8.0 s | Arm step, after a warning: time to move the phone (and hear the line) before warning again. |
+| `reframe_persist_s` | 1.5 s | Arm step, before the hold: the problem must have lasted this long. |
+| `hold_lost_grace_s` | 1.0 s | During the 10 s hold: an arm out of the picture this long stops the hold, warns, and restarts it from zero. |
+| `face_reframe_s` | 4.0 s | The face fix-it caption stays on screen this long before the face step runs again. |
+| `face_lost_fraction` | 0.75 | Face missing for this share of the neutral window: warn straight away instead of after the smile. |
+
+Each retry extends the call's time cap by what it costs (`arms_wait_timeout_s + arms_hold_s`
+for the arms, the whole face step plus `face_reframe_s` for the face), so a retry never pushes
+the sentence step past the cap. The worst case is bounded: two retries per step.
+
+What counts as a framing problem (`onset/measure/arms.py` `frame_problem`, `face.py`
+`face_problem`): no body or face found, too dark, shoulders off an edge, a wrist hidden or off
+the side, both wrists above the top edge, face at the edge or turned away. Each has its own
+line in `onset/script.py` (`ARMS_FRAMING`, `FACE_FRAMING`), e.g. "I can't see your left hand.
+Move back so both hands show."
+
+What is **never** retried, because it is a finding and goes straight to the decision:
+
+- a wrist below the bottom edge (an arm not raised, or an arm that came down);
+- during the hold, a wrist that was already moving down (more than `UP_LEVEL` 0.25 sw under
+  the shoulder line) when it disappeared: the hold carries on, is never restarted, and the
+  result notes `dropped_out_of_view`;
+- one arm coming down early (`early_drop`), arms never raised, no smile (`NO_RESPONSE`);
+- `MOTION` and `ERROR` results.
+
+A result measured after retries carries `framing_retries` and `framing_problem` in its
+`detail`; if it is still not `OK`, the UNCLEAR reason says so, e.g. "The person was only partly
+in view during the arm check, even after 2 tries to fix the camera view". Every warning is a
+`framing` event (`onset/events.py`) and shows on the dashboard.
+
 ## Tuning from recorded data
 
 Use the recorder and replay tools (piece 7: `tools/record.py`, `tools/replay.py`) to build a

@@ -287,7 +287,7 @@ footer { text-align: center; font-family: var(--f-mono); font-size: 0.8cqw; colo
 // ------------------------------------------------------------------ constants
 const STEPS = [
   { key: "greet", label: "Greet", names: ["greet"] },
-  { key: "face", label: "Face", names: ["face_neutral", "face_smile"] },
+  { key: "face", label: "Face", names: ["face_neutral", "face_smile", "face_reframe"] },
   { key: "arms", label: "Arms", names: ["arms_wait", "arms_hold"] },
   { key: "sentence", label: "Sentence", names: ["sentence"] },
   { key: "result", label: "Result", names: ["deciding", "closing", "baseline_saved"] },
@@ -355,6 +355,12 @@ function apply(ev, live) {
       else if (String(ev.step).startsWith("arms")) Object.assign(S.arms.live, m);
       break;
     }
+    case "framing":  // the camera could not see the step: fix-it caption shown, step re-run
+      if (S[ev.check]) {
+        S[ev.check].framing = ev;
+        if (ev.action === "retry" && ev.check === "arms") S.arms.live = {};
+      }
+      break;
     case "result":
       if (S[ev.check]) S[ev.check].result = { quality: ev.quality, ...(ev.data || {}) };
       break;
@@ -428,8 +434,24 @@ function head(name, sub, st) {
 }
 function usualTxt(v, fmt = f2) { return num(v) === null ? "" : `<small>usual ${fmt(v)}</small>`; }
 const wpmFmt = v => String(Math.round(v));
+const FRAMING = { too_dark: "too dark", no_body: "person not in view", no_face: "face not in view",
+                  edge: "face at the edge", turned: "head turned away", shoulders_low: "shoulders below the picture",
+                  shoulders_high: "shoulders above the picture", shoulders_side: "not facing the phone",
+                  both_hands: "both hands out of view", hands_high: "hands above the picture",
+                  left_hand: "left hand out of view", right_hand: "right hand out of view" };
+// While a check is running: the latest framing warning (what the caller was told to fix).
+function framingNote(check, r) {
+  const f = S[check].framing;
+  if (!f || r) return "";
+  const what = esc(FRAMING[f.problem] || f.problem || "not in view");
+  if (f.action === "give_up") return `<div class="note warn">Still can't see: ${what}. No retries left, carrying on.</div>`;
+  return `<div class="note warn">Reframing: ${what} · try ${esc(f.retry)} of ${esc(f.max_retries)}</div>`;
+}
 function qualityNote(r, st) {
   if (!r) return "";
+  const n = r.detail ? num(r.detail.framing_retries) : null;
+  if (r.quality !== "ok" && n) return `<div class="note warn">Not measured clearly: ${esc(QUALITY[r.quality] || r.quality)}, even after ${n} ${n === 1 ? "retry" : "retries"}</div>`;
+  if (r.quality === "ok" && n) return `<div class="note">Measured after ${n} framing ${n === 1 ? "retry" : "retries"}</div>`;
   if (r.quality !== "ok") return `<div class="note warn">Not measured clearly: ${esc(QUALITY[r.quality] || r.quality)}${r.detail && r.detail.reason ? " (" + esc(r.detail.reason) + ")" : ""}</div>`;
   return "";
 }
@@ -443,13 +465,13 @@ function renderFace() {
   const usual = b ? b.face_asymmetry : null;
   const chg = num(usual) !== null ? usual + TH.face_asymmetry_increase : null;
   const bad = st === "changed";
-  const sub = live ? (S.step === "face_neutral" ? "relaxed face" : S.step === "face_smile" ? "big smile" : "smile check")
+  const sub = live ? (S.step === "face_neutral" ? "relaxed face" : S.step === "face_smile" ? "big smile" : S.step === "face_reframe" ? "fixing the camera view" : "smile check")
                    : (bad && r.weaker_side ? `${r.weaker_side} side lifts less than usual` : "smile check");
   let h = head("Face", sub, st) + `<div class="rows">`;
   h += row("Left lift", gauge(ll, 0.3, { cls: "side-l" }), f2(ll));
   h += row("Right lift", gauge(lr, 0.3, { cls: "side-r" }), f2(lr));
   h += row("Asymmetry", gauge(asym, 1, { usual, change: chg, cls: bad ? "bad" : live ? "live" : "" }), f2(asym) + usualTxt(usual), bad ? "bad" : "");
-  h += `</div>` + qualityNote(r, st);
+  h += `</div>` + framingNote("face", r) + qualityNote(r, st);
   return [st, h];
 }
 
@@ -475,7 +497,7 @@ function renderArms() {
   h += row("Right drift", gauge(Math.max(0, dr ?? 0), 0.3, { cls: "side-r" }), f2(dr));
   h += row("Difference", gauge(diff, 0.3, { usual, change: chg, cls: bad ? "bad" : live ? "live" : "" }), f2(diff) + usualTxt(usual), bad ? "bad" : "");
   h += row("Hold", gauge(holdFill, hold, { cls: holdWarn ? "warn" : live ? "live" : "" }), esc(holdVal), holdWarn ? "warn" : "");
-  h += `</div>` + qualityNote(r, st);
+  h += `</div>` + framingNote("arms", r) + qualityNote(r, st);
   return [st, h];
 }
 

@@ -38,7 +38,9 @@ Re-prompting
 `FaceMeter.reset()` forgets everything fed so far (frames, landmarks, the neutral rest pose,
 live numbers, failure counts) so the flow can re-prompt the step with the same meter (the model
 stays loaded). MediaPipe's VIDEO-mode timestamps keep increasing across a reset, even though
-`Frame.t` restarts at 0 for the new attempt.
+`Frame.t` restarts at 0 for the new attempt. `FaceMeter.framing()` says whether the face is in
+the picture right now and, if not, why (`face_problem`), so the flow can tell the person how to
+fix it before re-prompting.
 """
 
 from __future__ import annotations
@@ -224,6 +226,48 @@ class FaceObs:
         if abs(self.geom.yaw_deg) > MAX_YAW_DEG:
             return False, "turned"
         return True, "ok"
+
+
+# --------------------------------------------------------------------------- framing
+# Problems with the picture, which the flow can ask the person to fix and then re-run the
+# step. "No smile" (NO_RESPONSE) and movement are never framing problems.
+FACE_FRAMING_PROBLEMS = ("too_dark", "no_face", "edge", "turned")
+
+
+@dataclass(frozen=True)
+class FaceFraming:
+    problem: str | None  # None, or one of FACE_FRAMING_PROBLEMS
+    seconds: float = 0.0  # how long it has lasted without a usable frame
+
+    @property
+    def ok(self) -> bool:
+        return self.problem is None
+
+
+def face_problem(o: FaceObs) -> str | None:
+    """The framing problem on one observation, or None if it can be measured."""
+    if o.pts is None:
+        return "too_dark" if o.luma < MIN_LUMA else "no_face"
+    usable, why = o.usable()
+    if not usable:
+        return why if why in FACE_FRAMING_PROBLEMS else "no_face"
+    return "too_dark" if o.luma < MIN_LUMA else None
+
+
+def framing_of(obs: Sequence[FaceObs]) -> FaceFraming:
+    """Framing over one phase's observations: the trailing run of problem frames, its most
+    common problem and how long it has lasted (first problem frame to the newest frame)."""
+    if not obs:
+        return FaceFraming(None)
+    probs = [face_problem(o) for o in obs]
+    if probs[-1] is None:
+        return FaceFraming(None)
+    i = len(probs) - 1
+    while i > 0 and probs[i - 1] is not None:
+        i -= 1
+    run = probs[i:]
+    problem = max(FACE_FRAMING_PROBLEMS, key=lambda p: (run.count(p), -FACE_FRAMING_PROBLEMS.index(p)))
+    return FaceFraming(problem, float(obs[-1].t - obs[i].t))
 
 
 def _motion(obs: Sequence[FaceObs]) -> float | None:
@@ -475,6 +519,13 @@ class FaceMeter:
     @property
     def ms_per_frame(self) -> float | None:
         return float(np.median(self._ms)) if self._ms else None
+
+    def framing(self) -> FaceFraming:
+        """Is the face in the picture and usable right now (current phase)? Never raises."""
+        try:
+            return framing_of(self.smile if self.smile else self.neutral)
+        except Exception:  # defensive: only advice for the flow
+            return FaceFraming(None)
 
     def result(self) -> FaceResult:
         """The step's FaceResult. Never raises."""
