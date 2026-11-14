@@ -11,6 +11,7 @@ The orchestrator keeps this file current.
 |---|---|---|
 | local_d6306b8b-9726-404e-a561-955849962a28 | Orchestrator (main session) | yes |
 | local_e7ebf3e6-c8ac-4d27-923e-74acfa86c28d | chert-voice: why callers hear no agent audio | yes |
+| local_0053261f-bc4f-46be-a326-8055b2809ecc | polish-pizzazz: cinematic HTML deck with 3D + live demo, polish of overlay, dashboard, README, video assets (branch `polish/pizzazz`) | yes |
 
 Finished, no longer watched: onset-face, onset-arms, onset-speech, onset-decide, onset-harness,
 onset-chert-api (PRs #10–#15, all merged into `main` on 14 Nov 2026).
@@ -20,9 +21,9 @@ onset-chert-api (PRs #10–#15, all merged into `main` on 14 Nov 2026).
 1. [x] Advisor pathway from Fable 5.2 (caption-first flow; dashboard; record real calls early; replay mode)
 2. [x] Chert voice investigator session started (owns the live line until it says the line is free)
 3. [x] Review and merge PRs #10–#15 (278 tests pass on main)
-4. [ ] Piece 5: scripted call flow, caption-first overlay (every instruction, countdown and result on the video) — subagent on branch `piece/flow` (worktree `~/onset-wt/flow`)
+4. [x] Piece 5: scripted call flow, caption-first overlay — merged (`onset/flow.py`, `script.py`, `overlay.py`, `voice.py`, `agent.py`); 312 tests pass. Fake call: `tools/fake_call_private.sh` (runs as `onset-flowtest`, never touches the line). Face/arms only tested on synthetic frames so far.
 5. [ ] Laptop demo dashboard + `tools/demo.sh` + `docs/rehearsal.md` — subagent on branch `piece/dashboard`
-6. [ ] Replay mode: run the same pipeline from a recorded call — `tools/replay_flow.py` on `piece/flow`
+6. [x] Replay mode: `tools/replay_flow.py <recording>` (merged with the flow). Dashboard must keep playing `say` audio that arrives after `run_ended`.
    - Demo write-ups (run-of-show, deck text, Devpost, video plan, architecture, safety) — subagent on branch `piece/demo-docs`
    - Code review of merged pieces — subagent, report only
    - CI fixed on main (MediaPipe needs libegl1/libgles2 on the runner)
@@ -30,7 +31,10 @@ onset-chert-api (PRs #10–#15, all merged into `main` on 14 Nov 2026).
 7. [ ] Real calls with the user: baseline call + acted "change" call, recorded (needs the line back from chert-voice)
 8. [ ] Threshold sanity check on the real recordings
 9. [ ] Caregiver iMessage: real send once the user creates a Chert project API key and the caregiver phone has texted the line
-10. [ ] Demo deliverables: run-of-show, 6-slide deck, Devpost write-up, architecture diagram, 2–3 min video plan, safety framing
+10. [~] Demo deliverables: run-of-show, deck text, Devpost, video plan, architecture, safety in `docs/demo/` (merged).
+    Slide deck published as an Artifact: https://claude.ai/artifact/1bBHtjNdPuv1yDpmrJEZxj (8 slides; files in the
+    orchestrator's scratchpad `deck/`). Still to do: team names, real screenshots once the dashboard and flow land,
+    match the Devpost and run-of-show wording to `onset/script.py`.
 11. [ ] One-command start script, cold-start rehearsal checklist
 12. [ ] Final review, README, mark this file COMPLETE and disable the resume job
 
