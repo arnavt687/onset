@@ -6,7 +6,11 @@
      (participant attributes "onset.*", or a data packet on topic "onset").
    - Side room "<room>-cg", talk token (publish only): the caregiver's mic and camera, which the
      agent relays into the FaceTime call. Only one audio publisher may exist in the main room,
-     so the caregiver never publishes there.
+     so the caregiver never publishes there. The talk token comes from the agent inside the
+     call (a data packet on topic "onset"), or from an old-style link.
+   - One tap joins AND starts talking: the microphone and camera are asked for inside that tap,
+     and talking begins as soon as the talk token arrives. What goes wrong (microphone blocked,
+     no microphone) is shown here and reported to the agent on topic "onset-cg" in the side room.
    While the agent relays ("onset.relay" == "on") its audio track carries the caregiver's own
    voice, so that track is muted here to avoid an echo.
 
@@ -40,6 +44,9 @@
   var S = {
     phase: link.ok ? "idle" : link.error,   // idle|connecting|live|reconnecting|ended|error|missing|bad|expired|nolib
     talk: "off",                             // off|connecting|on
+    media: "none",                           // none|asking|ready|denied|missing : the mic and camera
+    autoTalk: true,                          // start talking without a second tap (until they press Leave)
+    noTalkKey: false,                        // the agent has not sent a talk key (watch-only link)
     muted: false,
     agent: null, agentSeen: false, agentLate: false,
     caller: null, callerSeen: false, callerLeft: false,
@@ -47,7 +54,10 @@
     canPlayAudio: true, canRejoin: true,
     endedText: "", errorText: "", hint: "",
   };
-  var room = null, talkRoom = null, localTracks = [], agentTimer = null;
+  var room = null, talkRoom = null, localTracks = [], agentTimer = null, keyTimer = null;
+  var talkToken = link.ok ? link.talk : null;   // from an old-style link, else from the agent, in the call
+  var ready = null;                              // mic and camera tracks, asked for inside the first tap
+  var TALK_KEY_LATE_MS = 12000;
   var tracks = { agentVideo: null, callerVideo: null };
   var shown = { main: null, pip: null };
 
@@ -64,6 +74,7 @@
     switch (S.phase) {
       case "missing": return ["bad", "This page needs the private link from Onset's message. Open that link again."];
       case "bad": return ["bad", "This link is incomplete. Open it again from Onset's message."];
+      case "cut": return ["bad", "This link was cut short on its way to you. Copy the whole link from the message, or ask for it again."];
       case "expired": return ["bad", "This link has expired." + (n ? " If you can't reach " + n + ", call 911." : " If you can't reach them, call 911.")];
       case "nolib": return ["bad", "Couldn't load the video player. Check your connection, then tap Try again."];
       case "idle": return ["idle", "Ready when you are."];
@@ -74,22 +85,24 @@
     }
     // live
     if (S.talk === "on") return ["talk", S.muted ? "Talking, but your microphone is muted." : "Talking. " + (n || "They") + " can hear you."];
-    if (S.talk === "connecting") return ["busy", "Turning on your microphone and camera…"];
+    if (S.talk === "connecting" || S.media === "asking") return ["busy", "Turning on your microphone and camera…"];
     if (S.callerLeft) return ["warn", (n || "They") + " left the call. If you can't reach " + (n || "them") + ", call 911."];
     if (!S.agent) {
       if (S.agentSeen) return ["warn", "Onset has left the call."];
       return S.agentLate ? ["warn", "Connected, but Onset isn't in the call right now."] : ["busy", "Connected. Waiting for Onset…"];
     }
+    if (S.media === "denied") return ["warn", "Watching. Your microphone is blocked, so " + (n || "they") + " can't hear you."];
+    if (S.media === "missing") return ["warn", "Watching. No microphone was found, so " + (n || "they") + " can't hear you."];
     return ["live", n ? "Watching " + possessive(n) + " call." : "Watching the call."];
   }
 
   function stageMessage() {
     var n = name();
     switch (S.phase) {
-      case "missing": case "bad": return "No call to show.";
+      case "missing": case "bad": case "cut": return "No call to show.";
       case "expired": return "This link has expired.";
       case "nolib": case "error": return "Not connected.";
-      case "idle": return "Tap to start, below, to watch " + (n ? possessive(n) + " " : "the ") + "FaceTime check-in.";
+      case "idle": return "Tap the button below to join " + (n ? possessive(n) + " " : "the ") + "call. Your microphone and camera turn on so they can see and hear you.";
       case "connecting": case "reconnecting": return "Connecting…";
       case "ended": return "The call has ended.";
     }
@@ -123,19 +136,20 @@
 
     var canRetry = link.ok && (S.phase === "error" || S.phase === "nolib" || (S.phase === "ended" && S.canRejoin));
     show("startBtn", S.phase === "idle" || canRetry);
-    setText("startBtn", S.phase === "idle" ? "Tap to start" : "Try again");
+    setText("startBtn", S.phase === "idle" ? "Tap to join the call" : "Try again");
     show("soundBtn", S.phase === "live" && !S.canPlayAudio);
 
     var live = S.phase === "live";
-    show("talkBtn", live && !!link.talk && S.talk !== "on" && !!S.agent && !S.callerLeft);
-    $("talkBtn").disabled = S.talk === "connecting";
-    setText("talkBtn", S.talk === "connecting" ? "Starting…" : "Talk to " + (n || "them"));
+    var starting = S.talk === "connecting" || S.media === "asking";
+    show("talkBtn", live && !!talkToken && S.talk !== "on" && !!S.agent && !S.callerLeft);
+    $("talkBtn").disabled = starting;
+    setText("talkBtn", starting ? "Starting…" : "Tap to talk to " + (n || "them"));
     show("talkRow", live && S.talk === "on");
     $("muteBtn").setAttribute("aria-pressed", S.muted ? "true" : "false");
     setText("muteBtn", S.muted ? "Unmute" : "Mute");
 
     var hint = S.hint;
-    if (!hint && live && !link.talk) hint = "This link can watch the call, but not talk.";
+    if (!hint && live && !talkToken) hint = S.noTalkKey ? "This link can watch the call, but not talk." : "Getting ready so you can talk…";
     setText("hint", hint);
     show("hint", !!hint);
   }
@@ -272,7 +286,7 @@
     room = r;
     r.on(E.TrackSubscribed, onTrackSubscribed)
      .on(E.TrackUnsubscribed, onTrackUnsubscribed)
-     .on(E.ParticipantConnected, function () { scanParticipants(); render(); })
+     .on(E.ParticipantConnected, function () { scanParticipants(); maybeTalk(); render(); })
      .on(E.ParticipantDisconnected, function (p) {
        if (isCaller(p)) { tracks.callerVideo = null; layoutVideo(); }
        scanParticipants(); render();
@@ -282,6 +296,15 @@
        if (topic !== "onset") return;
        try {
          var msg = JSON.parse(new TextDecoder().decode(payload));
+         if (msg && msg.type === "talk" && typeof msg.token === "string" && /^[\w-]+\.[\w-]+\.[\w-]+$/.test(msg.token)) {
+           // The key to the side room, handed over inside the call. Start talking with it.
+           if (!talkToken) {
+             talkToken = msg.token; S.noTalkKey = false; clearTimeout(keyTimer);
+             if (pendingReport) report(pendingReport);
+             maybeTalk(); render();
+           }
+           return;
+         }
          if (msg && msg.type === "summary") {
            if (typeof msg.text === "string" && msg.text && !(S.agent && S.agent.attributes && S.agent.attributes["onset.summary"])) S.summary = msg.text.slice(0, 1200);
            if (typeof msg.outcome === "string" && !S.outcome) S.outcome = msg.outcome;
@@ -294,8 +317,10 @@
      .on(E.Reconnected, function () { if (S.phase === "reconnecting") { S.phase = "live"; scanParticipants(); render(); } })
      .on(E.Disconnected, function (reason) { if (room === r) onDisconnected(reason); });
 
-    // Inside the tap: lets iOS Safari play the call's audio once it arrives.
+    // Inside the tap: lets iOS Safari play the call's audio once it arrives...
     try { r.startAudio().catch(function () {}); } catch (e) {}
+    // ...and ask for the microphone and camera now, so talking needs no second tap.
+    if (S.autoTalk && !ready && S.media !== "denied") prepareMedia();
 
     r.connect(link.url, link.watch, { autoSubscribe: true }).then(function () {
       if (room !== r) return;
@@ -304,6 +329,9 @@
       scanParticipants();
       clearTimeout(agentTimer);
       agentTimer = setTimeout(function () { S.agentLate = true; render(); }, AGENT_LATE_MS);
+      clearTimeout(keyTimer);
+      if (!talkToken) keyTimer = setTimeout(function () { if (!talkToken) { S.noTalkKey = true; render(); } }, TALK_KEY_LATE_MS);
+      maybeTalk();
       render();
     }, function (err) {
       if (room !== r) return;
@@ -316,21 +344,74 @@
   }
 
   // ---------------------------------------------------------------- 7. talking (side room)
+  var AUDIO_OPTS = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+
+  // The microphone and camera, or just the microphone. Throws what the browser throws.
+  async function getMedia() {
+    var lk = LK();
+    try {
+      return await lk.createLocalTracks({ audio: AUDIO_OPTS, video: { facingMode: "user", resolution: lk.VideoPresets.h540.resolution } });
+    } catch (e) {
+      if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
+      return await lk.createLocalTracks({ audio: AUDIO_OPTS, video: false });
+    }
+  }
+  function mediaProblem(err) {
+    return err && (err.name === "NotAllowedError" || err.name === "SecurityError") ? "denied" : "missing";
+  }
+  function problemHint(kind) {
+    return kind === "denied" ? "Your microphone is blocked. Allow the microphone for this page in your browser's settings, then tap Talk."
+                             : "No microphone was found on this device. You can still watch; tap Talk to try again.";
+  }
+
+  // Asked for inside the first tap. Talking starts by itself once the talk key is here.
+  async function prepareMedia() {
+    if (!LK() || ready || S.media === "asking") return;
+    S.media = "asking"; render();
+    try {
+      ready = await getMedia();
+      S.media = "ready";
+    } catch (err) {
+      S.media = mediaProblem(err);
+      S.hint = problemHint(S.media);
+      report(S.media === "denied" ? "mic_denied" : "no_mic");
+    }
+    maybeTalk();
+    render();
+  }
+
+  function maybeTalk() {
+    if (S.autoTalk && ready && talkToken && S.phase === "live" && S.talk === "off" && S.agent && !S.callerLeft) startTalk();
+  }
+
+  // Tell the agent what this page is doing (topic "onset-cg" in the side room), so the dashboard
+  // and the log can say why talking has not started. Best effort; needs the talk key.
+  var pendingReport = null;
+  function report(state) {
+    var lk = LK();
+    if (!lk || !talkToken) { pendingReport = state; return; }
+    pendingReport = null;
+    var bytes = new TextEncoder().encode(JSON.stringify({ type: "cg", state: state }));
+    var opts = { reliable: true, topic: "onset-cg" };
+    if (talkRoom && talkRoom.state === "connected") { talkRoom.localParticipant.publishData(bytes, opts).catch(function () {}); return; }
+    var r = new lk.Room({ adaptiveStream: false, dynacast: false });  // not talking: join just to say so
+    r.connect(link.url, talkToken, { autoSubscribe: false })
+      .then(function () { return r.localParticipant.publishData(bytes, opts); })
+      .catch(function () {})
+      .then(function () { setTimeout(function () { try { r.disconnect(); } catch (e) {} }, 800); });
+  }
+
   async function startTalk() {
     var lk = LK();
-    if (!lk || !link.talk || S.talk !== "off" || S.phase !== "live") return;
+    if (!lk || !talkToken || S.talk !== "off" || S.phase !== "live") return;
     S.talk = "connecting"; S.hint = ""; render();
-    var audioOpts = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
     var got = [], noCamera = false, r = null;
     try {
-      // Ask for the mic and camera first, inside the tap, so iOS shows its prompt.
-      try {
-        got = await lk.createLocalTracks({ audio: audioOpts, video: { facingMode: "user", resolution: lk.VideoPresets.h540.resolution } });
-      } catch (e) {
-        if (e && e.name === "NotAllowedError") throw e;
-        got = await lk.createLocalTracks({ audio: audioOpts, video: false });
-        noCamera = true;
-      }
+      // The tracks from the first tap, or ask now (inside this tap), so iOS shows its prompt.
+      if (ready) { got = ready; ready = null; }
+      else { S.media = "asking"; got = await getMedia(); }
+      S.media = "ready";
+      noCamera = !got.some(function (t) { return t.kind === "video"; });
       localTracks = got;
       r = new lk.Room({ adaptiveStream: false, dynacast: false, disconnectOnPageLeave: true });
       talkRoom = r;
@@ -340,7 +421,7 @@
         if (S.phase === "live") S.hint = "Talking stopped. Tap Talk to try again.";
         render();
       });
-      await r.connect(link.url, link.talk, { autoSubscribe: false });
+      await r.connect(link.url, talkToken, { autoSubscribe: false });
       for (var i = 0; i < got.length; i++) {
         var t = got[i];
         await r.localParticipant.publishTrack(t, t.kind === "audio"
@@ -349,13 +430,14 @@
         if (t.kind === "video") { t.attach($("selfVideo")); $("selfVideo").hidden = false; }
       }
       if (talkRoom !== r) return;
-      S.talk = "on"; S.muted = false;
-      if (noCamera) S.hint = "Your camera isn't available, so they'll hear you without video.";
+      S.talk = "on"; S.muted = false; S.autoTalk = true;
+      if (noCamera) { S.hint = "Your camera isn't available, so they'll hear you without video."; report("no_camera"); }
     } catch (err) {
+      var gotMedia = got.length > 0;
       stopTalk(true);
-      var blocked = err && (err.name === "NotAllowedError" || err.name === "SecurityError");
-      S.hint = blocked ? "Your microphone is blocked. Allow it for this page in your browser settings, then tap Talk again."
-                       : "Couldn't start talking. Tap Talk to try again.";
+      S.autoTalk = false;  // do not loop: the Talk button tries again
+      if (gotMedia) { S.hint = "Couldn't start talking. Tap Talk to try again."; report("talk_failed"); }
+      else { S.media = mediaProblem(err); S.hint = problemHint(S.media); report(S.media === "denied" ? "mic_denied" : "no_mic"); }
     }
     render();
   }
@@ -366,8 +448,10 @@
     localTracks.forEach(function (t) { try { t.detach(); t.stop(); } catch (e) {} });
     localTracks = [];
     $("selfVideo").hidden = true;
+    if (ready) { ready.forEach(function (t) { try { t.stop(); } catch (e) {} }); ready = null; }
     if (r) { try { r.disconnect(); } catch (e) {} }
     S.talk = "off"; S.muted = false;
+    if (S.media === "ready" || S.media === "asking") S.media = "none";
     if (!quiet) S.hint = "";
   }
 
@@ -377,6 +461,7 @@
     try {
       if (S.muted) await mic.unmute(); else await mic.mute();
       S.muted = !S.muted;
+      report(S.muted ? "muted" : "unmuted");
     } catch (e) {}
     render();
   }
@@ -388,7 +473,7 @@
   });
   $("talkBtn").addEventListener("click", startTalk);
   $("muteBtn").addEventListener("click", toggleMute);
-  $("leaveBtn").addEventListener("click", function () { stopTalk(false); render(); });
+  $("leaveBtn").addEventListener("click", function () { report("stopped"); S.autoTalk = false; setTimeout(function () { stopTalk(false); render(); }, 150); });
 
   // The link can run out while the page sits unopened.
   setInterval(function () {

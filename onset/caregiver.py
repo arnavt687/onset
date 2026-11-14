@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -77,6 +78,9 @@ class Invite:
     talk_identity: str | None
     expires_at: int
     kind: str  # "page" | "meet"
+    # The side room's key. It is NOT in the link: agent.py hands it to the caregiver inside the
+    # call once they have joined, so a link cut short by a messaging app cannot lose it.
+    talk_token: str | None = field(default=None, repr=False)
 
     def __repr__(self) -> str:
         return (f"Invite(kind={self.kind!r}, room={self.room!r}, side_room={self.side_room!r}, "
@@ -108,9 +112,26 @@ def talk_token(side_room: str, identity: str, *, api_key: str, api_secret: str, 
     """Publish-only, in the side room Onset relays from."""
     from livekit import api
 
+    # can_publish_data: the page reports its own state there ("microphone blocked"), so the log
+    # says why talking never started (issue #30). Onset's relay is the only listener.
     grants = api.VideoGrants(room_join=True, room=side_room, can_subscribe=False, can_publish=True,
-                             can_publish_data=False, can_publish_sources=["microphone", "camera"])
+                             can_publish_data=True, can_publish_sources=["microphone", "camera"])
     return _token(api_key, api_secret, identity, "Caregiver", ttl_s, grants)
+
+
+def short_link(base: str, livekit_url: str, watch: str) -> str | None:
+    """`<page>#c/<host>/<length of the key>/<key>`: about 450 characters, no `&`, `=` or `%`.
+
+    The old link (`#u=..&w=..&t=..&n=..&e=..`) was about 1,000 characters with the talk key last.
+    Sent through Messages it arrived cut short: the caregiver could watch but not talk, and the
+    page could not tell. Here the only key is the watch key, its length comes first so a cut link
+    is recognised and refused, and the talk key travels inside the call. None for a LiveKit URL
+    this form cannot carry (a path, a query): the caller falls back to the long form."""
+    m = re.fullmatch(r"(wss?)://([A-Za-z0-9.\-]+(?::\d+)?)/?", livekit_url.strip())
+    if not m:
+        return None
+    host = m.group(2).lower() if m.group(1) == "wss" else f"ws:{m.group(2).lower()}"
+    return f"{base}#c/{host}/{len(watch)}/{watch}"
 
 
 def relay_token(side_room: str, identity: str, *, api_key: str, api_secret: str, ttl_s: int = 3600) -> str:
@@ -135,14 +156,18 @@ def make_invite(room: str, run_id: str, *, livekit_url: str, api_key: str, api_s
     if cfg.page:
         side = side_room_name(room) if cfg.talk else None
         talk_id = f"{TALK_PREFIX}{tag}" if side else None
-        parts = [f"u={quote(livekit_url, safe='')}", f"w={w}"]
-        if side:
-            parts.append(f"t={talk_token(side, talk_id, api_key=api_key, api_secret=api_secret, ttl_s=cfg.ttl_s)}")
-        if patient_first:
-            parts.append(f"n={quote(patient_first, safe='')}")
-        parts.append(f"e={expires}")
+        talk = talk_token(side, talk_id, api_key=api_key, api_secret=api_secret, ttl_s=cfg.ttl_s) if side else None
         base = cfg.page.split("#", 1)[0]
-        return Invite(f"{base}#{'&'.join(parts)}", room, side, watch_id, talk_id, expires, "page")
+        link = short_link(base, livekit_url, w)
+        if link is None:  # an unusual LiveKit URL: the long form, with every key in it
+            parts = [f"u={quote(livekit_url, safe='')}", f"w={w}"]
+            if talk:
+                parts.append(f"t={talk}")
+            if patient_first:
+                parts.append(f"n={quote(patient_first, safe='')}")
+            parts.append(f"e={expires}")
+            link = f"{base}#{'&'.join(parts)}"
+        return Invite(link, room, side, watch_id, talk_id, expires, "page", talk)
     link = MEET_URL.format(url=quote(livekit_url, safe=""), token=w)
     return Invite(link, room, None, watch_id, None, expires, "meet")
 

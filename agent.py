@@ -362,6 +362,7 @@ class Escalation:
         self.cfg = caregiver.EscalationConfig.from_env()
         self.flow: CheckFlow | None = None
         self.relay = None
+        self.invite = None
         self.summary = ""
         self.outcome = ""
         self._tasks: set[asyncio.Task] = set()
@@ -387,6 +388,26 @@ class Escalation:
         except Exception as e:  # noqa: BLE001
             log.warning("[onset] could not send the summary to the caregiver: %s", type(e).__name__)
 
+    async def welcome(self, identity: str) -> None:
+        """The caregiver has joined: show them the summary and hand them the key to talk.
+
+        The talk key goes to that one participant, inside the call, instead of in the link
+        (a link cut short by a messaging app lost it: issue #30). Sent a few times, because a
+        data packet is not kept for a page that is still setting up."""
+        await self.publish_summary()
+        token = self.invite.talk_token if self.invite is not None else None
+        if not token:
+            return
+        payload = json.dumps({"type": "talk", "token": token})
+        for delay in (0.0, 1.5, 4.0, 9.0):
+            await asyncio.sleep(delay)
+            try:
+                await self.ctx.room.local_participant.publish_data(payload, reliable=True, topic="onset",
+                                                                   destination_identities=[identity])
+            except Exception as e:  # noqa: BLE001
+                log.warning("[onset] could not hand the caregiver the talk key: %s", type(e).__name__)
+                return
+
     async def run(self, decision, summary: str) -> dict:
         flow = self.flow
         self.summary, self.outcome = summary, decision.outcome.value
@@ -403,6 +424,7 @@ class Escalation:
                 log.warning("[onset] no caregiver link: %s", e)
                 if flow is not None:
                     flow.caregiver_update("failed", f"no link: {type(e).__name__}")
+        self.invite = invite
         if invite is not None:
             if invite.side_room:  # listen before anyone can have the link
                 await self._start_relay(invite.side_room)
@@ -428,6 +450,10 @@ class Escalation:
         flow = self.flow
 
         def status(s: str, detail: str) -> None:
+            if s == "page":  # the caregiver page's own report, e.g. the microphone is blocked
+                if flow is not None:
+                    flow.caregiver_note(detail)
+                return
             if flow is not None:
                 flow.caregiver_update(s, detail)
             if s == "left":
@@ -587,7 +613,7 @@ async def entry(ctx: JobContext) -> None:
         if is_caregiver(p):
             log.info("[onset] the caregiver joined the call (watching)")
             flow.caregiver_update("joined")
-            media.spawn(esc.publish_summary())
+            media.spawn(esc.welcome(p.identity))
 
     def on_left(p: rtc.RemoteParticipant) -> None:
         if is_caregiver(p) and flow.caregiver_status in ("joined", "invited"):

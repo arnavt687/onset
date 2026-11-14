@@ -47,15 +47,18 @@ def test_config_from_env():
     assert EscalationConfig.from_env({"ONSET_CAREGIVER_LINK_TTL_S": "abc"}).ttl_s == 900
 
 
-def test_page_invite_has_watch_and_talk_tokens_in_fragment():
+def test_page_invite_is_a_short_link_and_the_talk_key_is_not_in_it():
+    """Issue #30: a ~1,100-character link arrived cut short and lost the talk key, which came last."""
     cfg = EscalationConfig(page="https://x.test/onset/caregiver/#old")
     inv = make_invite("room-1", "call-abc", livekit_url=URL, api_key=KEY, api_secret=SECRET, cfg=cfg,
                       patient_first="Alex", now=1000)
     parts = urlsplit(inv.link)
     assert parts.netloc == "x.test" and not parts.query, "tokens must never be in the query string"
-    f = frag(inv.link)
-    assert unquote(f["u"]) == URL and f["n"] == "Alex" and f["e"] == str(1000 + 900)
-    w, t = claims(f["w"]), claims(f["t"])
+    mark, host, length, watch = parts.fragment.split("/")
+    assert mark == "c" and "wss://" + host == URL and int(length) == len(watch)
+    assert not set(parts.fragment) & set("&=%#? "), "nothing a messaging app or a shell splits a link on"
+    assert inv.talk_token and inv.talk_token not in inv.link and len(inv.link) < 650
+    w, t = claims(watch), claims(inv.talk_token)
     # Watch: the call's room, subscribe only. A second audio publisher would make Chert end the call.
     assert w["sub"] == "caregiver-call-abc" and w["video"]["room"] == "room-1"
     assert w["video"]["canSubscribe"] is True and w["video"].get("canPublish") is False
@@ -64,6 +67,7 @@ def test_page_invite_has_watch_and_talk_tokens_in_fragment():
     assert t["sub"].startswith(caregiver.TALK_PREFIX) and t["video"]["room"] == "room-1-cg"
     assert t["video"].get("canSubscribe") is False and t["video"]["canPublish"] is True
     assert set(t["video"]["canPublishSources"]) == {"microphone", "camera"}
+    assert t["video"]["canPublishData"] is True  # the page reports "microphone blocked" there
     assert w["exp"] - w["nbf"] <= 900 + 5
     assert inv.side_room == "room-1-cg" and inv.kind == "page"
     assert "eyJ" not in repr(inv)
@@ -72,7 +76,17 @@ def test_page_invite_has_watch_and_talk_tokens_in_fragment():
 def test_no_talk_means_no_side_room():
     inv = make_invite("r", "c", livekit_url=URL, api_key=KEY, api_secret=SECRET,
                       cfg=EscalationConfig(page="https://x.test/p", talk=False))
-    assert inv.side_room is None and "t" not in frag(inv.link)
+    assert inv.side_room is None and inv.talk_token is None and urlsplit(inv.link).fragment.startswith("c/")
+
+
+def test_an_unusual_livekit_url_falls_back_to_the_long_link():
+    inv = make_invite("r", "c", livekit_url="wss://lk.example/some/path", api_key=KEY, api_secret=SECRET,
+                      cfg=EscalationConfig(page="https://x.test/p"), patient_first="Alex", now=1000)
+    f = frag(inv.link)
+    assert unquote(f["u"]) == "wss://lk.example/some/path" and f["n"] == "Alex" and f["e"] == "1900" and f["t"] == inv.talk_token
+    local = make_invite("r", "c", livekit_url="ws://localhost:7880", api_key=KEY, api_secret=SECRET,
+                        cfg=EscalationConfig(page="https://x.test/p"))
+    assert urlsplit(local.link).fragment.startswith("c/ws:localhost:7880/")
 
 
 def test_meet_link_when_no_page_is_watch_only():

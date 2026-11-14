@@ -810,6 +810,12 @@ class CheckFlow:
                 self.caption = self.outcome_line.caption
                 self._cg_frame = None
 
+    def caregiver_note(self, detail: str) -> None:
+        """Something about the caregiver that is not a change of status (their page says the
+        microphone is blocked): the same status again, with the reason, for the dashboard and log."""
+        with self._lock:
+            self._emit("caregiver_join", status=self.caregiver_status or "invited", detail=detail)
+
     def caregiver_frame(self, rgb: np.ndarray, t: float) -> None:
         """The caregiver's latest camera frame, drawn picture-in-picture for the caller."""
         self._cg_frame = (t, rgb)

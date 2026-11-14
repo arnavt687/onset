@@ -13,12 +13,26 @@ tokens). `SideRoomRelay` joins that room hidden and subscribe-only and hands age
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Callable
 
 import numpy as np
 
 log = logging.getLogger("onset.relay")
+
+PAGE_TOPIC = "onset-cg"
+# What the caregiver page may report about itself, and how the dashboard says it.
+PAGE_STATES = {
+    "asking": "the caregiver's phone is asking them to allow the microphone and camera",
+    "mic_denied": "the caregiver's microphone is blocked in their browser: they can watch but not talk",
+    "no_mic": "the caregiver's device has no microphone available: they can watch but not talk",
+    "no_camera": "the caregiver is talking without a camera",
+    "talk_failed": "the caregiver's page could not start talking (connection)",
+    "muted": "the caregiver muted their microphone",
+    "unmuted": "the caregiver unmuted their microphone",
+    "stopped": "the caregiver pressed Leave: they are watching only",
+}
 
 AudioTrackFn = Callable[[object], None]  # rtc.RemoteAudioTrack
 FrameFn = Callable[[np.ndarray, float], None]
@@ -33,6 +47,7 @@ class SideRoomRelay:
         self.clock = clock
         self.room = None
         self._tasks: set[asyncio.Task] = set()
+        self._talkers: set[str] = set()  # identities whose microphone reached us
 
     def _spawn(self, coro) -> None:
         t = asyncio.create_task(coro)
@@ -49,6 +64,7 @@ class SideRoomRelay:
         def _sub(track, pub, p) -> None:  # noqa: ANN001
             if track.kind == rtc.TrackKind.KIND_AUDIO:
                 log.info("[onset] caregiver audio arrived in the side room (%s)", p.identity)
+                self._talkers.add(p.identity)
                 self.on_status("talking", "")
                 self.on_audio_track(track)
             elif track.kind == rtc.TrackKind.KIND_VIDEO:
@@ -56,8 +72,26 @@ class SideRoomRelay:
 
         @room.on("participant_disconnected")
         def _left(p) -> None:  # noqa: ANN001
-            if not room.remote_participants:
-                self.on_status("left", "the caregiver stopped talking")
+            # Only someone who was talking can stop: the page also joins briefly, without a
+            # microphone, just to report that the microphone is blocked.
+            if p.identity in self._talkers:
+                self._talkers.discard(p.identity)
+                if not self._talkers:
+                    self.on_status("left", "the caregiver stopped talking")
+
+        @room.on("data_received")
+        def _data(packet) -> None:  # noqa: ANN001
+            # The caregiver page's own state (topic "onset-cg"), e.g. {"state": "mic_denied"}.
+            try:
+                if getattr(packet, "topic", "") != PAGE_TOPIC:
+                    return
+                msg = json.loads(bytes(packet.data).decode("utf-8"))
+                state = str(msg.get("state") or "")[:40]
+                if state in PAGE_STATES:
+                    log.info("[onset] caregiver page: %s", state)
+                    self.on_status("page", PAGE_STATES[state])
+            except Exception:  # noqa: BLE001 - never let a stray packet touch the call
+                log.debug("unreadable packet in the side room", exc_info=True)
 
         try:
             await room.connect(self.url, self._token, rtc.RoomOptions(auto_subscribe=True))

@@ -1,6 +1,11 @@
 /* Onset caregiver link: reads the private fragment the agent puts in the caregiver's iMessage.
 
+     <page>#c/<LiveKit host>/<length of the watch JWT>/<watch JWT>          (the short form, sent now)
      <page>#u=<wss LiveKit URL>&w=<watch JWT>&t=<talk JWT, optional>&n=<first name, optional>&e=<expiry unix s>
+
+   The short form has one key and says how long it is, so a link cut short by a messaging app is
+   recognised ("cut") instead of half-working. The key that allows talking is not in it: the agent
+   hands it over inside the call.
 
    The fragment never reaches the web host (browsers do not send it), and app.js wipes it from the
    address bar right after reading. Works in the browser (window.OnsetLink) and in Node (require). */
@@ -53,6 +58,7 @@
     var now = typeof nowSeconds === "number" ? nowSeconds : Date.now() / 1000;
     var raw = typeof hash === "string" ? hash.replace(/^#/, "") : "";
     if (!raw) return { ok: false, error: "missing" };
+    if (/^c\//.test(raw)) return parseShort(raw, now);
     var p;
     try {
       p = new URLSearchParams(raw);
@@ -75,6 +81,21 @@
     if (exp === null) return { ok: false, error: "bad" };
     if (exp <= now) return { ok: false, error: "expired", expires: exp, name: cleanName(p.get("n")) };
     return { ok: true, url: url, watch: watch, talk: talk || null, name: cleanName(p.get("n")), expires: exp };
+  }
+
+  // c/<host>/<length>/<watch JWT>. "ws:<host>" is a LiveKit dev server on this machine.
+  function parseShort(raw, now) {
+    var parts = raw.split("/");
+    if (parts.length < 4 || !parts[1]) return { ok: false, error: "cut" };
+    var host = parts[1], want = parseInt(parts[2], 10), watch = parts.slice(3).join("/").trim();
+    var url = cleanUrl(/^ws:/.test(host) ? "ws://" + host.slice(3) : "wss://" + host);
+    if (!url || !/^\d{2,5}$/.test(parts[2])) return { ok: false, error: "bad" };
+    if (watch.length < want) return { ok: false, error: "cut" };
+    if (watch.length !== want || !JWT.test(watch)) return { ok: false, error: "bad" };
+    var claims = jwtPayload(watch);
+    if (!claims || typeof claims.exp !== "number") return { ok: false, error: "bad" };
+    if (claims.exp <= now) return { ok: false, error: "expired", expires: claims.exp, name: "" };
+    return { ok: true, url: url, watch: watch, talk: null, name: "", expires: claims.exp };
   }
 
   return { parse: parse, cleanName: cleanName, cleanUrl: cleanUrl, jwtPayload: jwtPayload };

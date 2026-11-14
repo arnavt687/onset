@@ -46,11 +46,21 @@ the side room into its own single audio track, and draws their camera picture-in
    - texts the caregiver the summary plus the link, through the safety gate (below);
    - writes the link to `runs/live/caregiver_link.txt` (0600; it is never put in an event or an
      archive), so the local dashboard can open the caregiver view in a demo.
-3. The caregiver opens the link: `ONSET_CAREGIVER_PAGE#u=<url>&w=<watch>&t=<talk>&n=<name>&e=<expiry>`.
-   The tokens are in the `#fragment`, so the static host never sees them.
+3. The caregiver opens the link: `ONSET_CAREGIVER_PAGE#c/<LiveKit host>/<key length>/<watch key>`.
+   The key is in the `#fragment`, so the static host never sees it. The link is about 500
+   characters and has no `&`, `=` or `%` (issue #30: the earlier link was about 1,100 characters
+   with the talk key last, it arrived cut short, and the caregiver could watch but not talk).
+   The key's length comes first, so a cut link is refused with "this link was cut short" instead
+   of half-working. **The talk key is not in the link**: Onset hands it to the caregiver inside
+   the call, on data topic `onset`, as soon as they join.
    - **Joined**: Onset says "Your caregiver has joined the call. Please still call 911", and sends
      the summary on data topic `onset`.
-   - **Talking**: once the caregiver taps Talk, their microphone reaches Onset in the side room.
+   - **One tap.** "Tap to join the call" asks for the microphone and camera inside that tap and
+     starts talking as soon as the talk key arrives; there is no second button to find. Leave
+     goes back to watching only. If the microphone is blocked or missing the page says so, and
+     tells Onset (topic `onset-cg` in the side room), so the dashboard and the log show why
+     talking has not started ("the caregiver's microphone is blocked in their browser").
+   - **Talking**: their microphone reaches Onset in the side room.
      Onset says "You can talk to your caregiver now. Please still call 911", then plays their
      voice through its own audio track, and the caller sees them picture-in-picture.
      `onset.relay` turns `on`, so the page stops playing Onset's audio, which would otherwise
@@ -99,3 +109,19 @@ hours of the caregiver's last text; see [chert-messaging.md](chert-messaging.md)
   - whether the Mac tolerates a subscribe-only caregiver in the room (documented as allowed);
   - whether caller capture (`facetime-remote-video`) is visible to a non-agent participant;
   - that the relayed voice sounds right on the iPhone.
+
+## Testing the page itself
+
+`tools/fake_escalation_private.sh` plays the caller and the caregiver and checks that the caller
+hears the caregiver through Onset. It publishes into the side room directly, so it does not
+exercise the page. To drive the real page:
+
+```bash
+tools/fake_escalation_private.sh --page 200      # plays only the caller, then waits for a real page
+```
+
+When it prints "waiting ... for a real caregiver page", open the link from
+`runs/live/caregiver_link.txt` in a browser (on this computer the dashboard serves the page at
+`http://localhost:8765/web/caregiver/index.html#...`), tap once, and talk. It reports whether the
+status reached `talking`, how much of the agent's audio was the caregiver, and anything the page
+reported about itself. Do this on a real iPhone in Safari before a demo.

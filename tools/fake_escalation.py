@@ -60,7 +60,12 @@ def tone_power(samples: np.ndarray, rate: int, hz: float = TONE_HZ) -> float:
 
 
 def parse_link(link: str) -> dict:
-    return {k: v[0] for k, v in parse_qs(urlsplit(link).fragment).items()}
+    """The caregiver link's parts: "u" (LiveKit URL), "w" (watch key), and for the old long form "t"."""
+    frag = urlsplit(link).fragment
+    if frag.startswith("c/"):  # the short form: c/<host>/<length>/<watch key>; the talk key comes in the call
+        _, host, _, watch = frag.split("/", 3)
+        return {"u": ("ws://" + host[3:]) if host.startswith("ws:") else "wss://" + host, "w": watch, "page": "1"}
+    return {k: v[0] for k, v in parse_qs(frag).items()}
 
 
 def check_hangup(events: list[dict], runs: Path) -> list[str]:
@@ -103,13 +108,13 @@ def check(events: list[dict], r: dict) -> list[str]:
         fails.append("no caregiver link was written")
     if r.get("watch_could_publish"):
         fails.append("the watch token could publish audio into the call (Chert would end it)")
-    if not r.get("summary"):
+    if not r.get("summary") and not r.get("page_mode"):  # with --page the summary is on the real page
         fails.append("the caregiver never received the summary (attributes or data)")
     if r.get("relay_tone", 0.0) < 0.3:
         fails.append(f"the caller did not hear the caregiver through Onset (tone share {r.get('relay_tone', 0):.2f})")
     if r.get("ready_at") and (r.get("first_audible") is None or r["first_audible"] - r["ready_at"] > 10):
         fails.append("the caller heard nothing from Onset within 10 s of bridge_ready (Chert would hang up)")
-    if r.get("relay_attr") != "on":
+    if r.get("relay_attr") != "on" and not r.get("page_mode"):
         fails.append(f"agent attribute onset.relay never 'on' (last {r.get('relay_attr')!r})")
     return fails
 
@@ -220,69 +225,106 @@ async def main(a: argparse.Namespace) -> int:
     else:
         r["link"] = link = link_file.read_text().strip()
         f = parse_link(link)
-        say("caregiver link written (", "page" if "t" in f else "meet", ")")
-        watch = rtc.Room()
-        await watch.connect(unquote(f["u"]), f["w"])
-        say("caregiver watching")
-        try:
-            src = rtc.AudioSource(48000, 1)
-            await asyncio.wait_for(watch.local_participant.publish_track(
-                rtc.LocalAudioTrack.create_audio_track("x", src), rtc.TrackPublishOptions()), 5)
-            r["watch_could_publish"] = True
-        except Exception:  # noqa: BLE001 - expected: no publish permission
-            r["watch_could_publish"] = False
-
-        @watch.on("data_received")
-        def _data(pkt):
-            try:
-                if pkt.topic == "onset":
-                    r["summary"] = r.get("summary") or json.loads(pkt.data).get("text")
-            except Exception:  # noqa: BLE001
-                pass
-
-        def agent_attr(name):
-            for p in watch.remote_participants.values():
-                if p.kind == rtc.ParticipantKind.PARTICIPANT_KIND_AGENT:
-                    return p.attributes.get(name)
-            return None
-
-        for _ in range(20):
-            r["summary"] = r.get("summary") or agent_attr("onset.summary")
-            if r["summary"]:
-                break
-            await asyncio.sleep(0.5)
-        say("summary seen by the caregiver:", bool(r.get("summary")))
-
-        if "t" in f:
-            talk = rtc.Room()
-            await talk.connect(unquote(f["u"]), f["t"])
-            tsrc = rtc.AudioSource(48000, 1)
-            await talk.local_participant.publish_track(rtc.LocalAudioTrack.create_audio_track("cg-mic", tsrc),
-                                                       rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE))
-            cvs = rtc.VideoSource(320, 240)
-            await talk.local_participant.publish_track(rtc.LocalVideoTrack.create_video_track("cg-cam", cvs),
-                                                       rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_CAMERA))
-            say("caregiver talking: a 440 Hz tone")
-            t_talk = time.monotonic()
-            k = np.arange(480)
-            green = np.zeros((240, 320, 4), np.uint8)
-            green[..., 1], green[..., 3] = 200, 255
-            n = 0
-            while time.monotonic() - t_talk < a.talk_seconds:
-                pcm = (8000 * np.sin(2 * math.pi * TONE_HZ * (k + n * 480) / 48000)).astype(np.int16)
-                await tsrc.capture_frame(rtc.AudioFrame(pcm.tobytes(), 48000, 1, 480))
-                if n % 7 == 0:
-                    cvs.capture_frame(rtc.VideoFrame(320, 240, rtc.VideoBufferType.RGBA, green.tobytes()))
-                n += 1
-                if agent_attr("onset.relay") == "on":
-                    r["relay_attr"] = "on"
+        say("caregiver link written (", "page" if ("t" in f or "page" in f) else "meet", f", {len(link)} characters)")
+        if a.page:
+            # A real caregiver page drives this part (issue #30: the page's own buttons and
+            # permission prompts were never in a test). Open the link in a browser now.
+            r["page_mode"] = True
+            say(f"waiting up to {a.page:.0f} s for a real caregiver page to join and talk")
+            t_end, t_talk = time.monotonic() + a.page, None
+            while time.monotonic() < t_end:
+                seen = [e.get("status") for e in read_events() if e.get("type") == "caregiver_join"]
+                if "talking" in seen and t_talk is None:
+                    t_talk = time.monotonic()
+                    say("the page is talking")
+                if t_talk is not None and time.monotonic() - t_talk > a.talk_seconds:
+                    break
+                await asyncio.sleep(0.5)
             heard = [s for t, s in agent_audio if t >= time.monotonic() - a.measure_seconds]
-            if heard:
-                r["relay_tone"] = tone_power(np.concatenate(heard), 16000)
-            say(f"tone share in the agent's audio while the caregiver talked: {r['relay_tone']:.2f}")
-            await talk.disconnect()
-        await asyncio.sleep(1.5)
-        await watch.disconnect()
+            r["relay_tone"] = tone_power(np.concatenate(heard), 16000) if heard and t_talk is not None else 0.0
+            say(f"tone share in the agent's audio while the page talked: {r['relay_tone']:.2f}")
+            for e in read_events():
+                if e.get("type") == "caregiver_join" and e.get("detail"):
+                    say("  page note:", e.get("status"), "-", e.get("detail"))
+        else:
+            watch = rtc.Room()
+
+            @watch.on("data_received")
+            def _talk_key(pkt):  # the agent hands the talk key over inside the call
+                try:
+                    msg = json.loads(pkt.data)
+                    if pkt.topic == "onset" and msg.get("type") == "talk":
+                        r["talk_key"] = msg["token"]
+                except Exception:  # noqa: BLE001
+                    pass
+
+            await watch.connect(unquote(f["u"]), f["w"])
+            say("caregiver watching")
+            try:
+                src = rtc.AudioSource(48000, 1)
+                await asyncio.wait_for(watch.local_participant.publish_track(
+                    rtc.LocalAudioTrack.create_audio_track("x", src), rtc.TrackPublishOptions()), 5)
+                r["watch_could_publish"] = True
+            except Exception:  # noqa: BLE001 - expected: no publish permission
+                r["watch_could_publish"] = False
+
+            @watch.on("data_received")
+            def _data(pkt):
+                try:
+                    if pkt.topic == "onset":
+                        r["summary"] = r.get("summary") or json.loads(pkt.data).get("text")
+                except Exception:  # noqa: BLE001
+                    pass
+
+            def agent_attr(name):
+                for p in watch.remote_participants.values():
+                    if p.kind == rtc.ParticipantKind.PARTICIPANT_KIND_AGENT:
+                        return p.attributes.get(name)
+                return None
+
+            for _ in range(20):
+                r["summary"] = r.get("summary") or agent_attr("onset.summary")
+                if r["summary"]:
+                    break
+                await asyncio.sleep(0.5)
+            say("summary seen by the caregiver:", bool(r.get("summary")))
+
+            for _ in range(40):  # up to 20 s for the key the agent sends after the caregiver joins
+                if f.get("t") or r.get("talk_key"):
+                    break
+                await asyncio.sleep(0.5)
+            talk_key = f.get("t") or r.get("talk_key")
+            say("talk key:", "in the link" if f.get("t") else "handed over in the call" if talk_key else "none")
+            if talk_key:
+                talk = rtc.Room()
+                await talk.connect(unquote(f["u"]), talk_key)
+                tsrc = rtc.AudioSource(48000, 1)
+                await talk.local_participant.publish_track(rtc.LocalAudioTrack.create_audio_track("cg-mic", tsrc),
+                                                           rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE))
+                cvs = rtc.VideoSource(320, 240)
+                await talk.local_participant.publish_track(rtc.LocalVideoTrack.create_video_track("cg-cam", cvs),
+                                                           rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_CAMERA))
+                say("caregiver talking: a 440 Hz tone")
+                t_talk = time.monotonic()
+                k = np.arange(480)
+                green = np.zeros((240, 320, 4), np.uint8)
+                green[..., 1], green[..., 3] = 200, 255
+                n = 0
+                while time.monotonic() - t_talk < a.talk_seconds:
+                    pcm = (8000 * np.sin(2 * math.pi * TONE_HZ * (k + n * 480) / 48000)).astype(np.int16)
+                    await tsrc.capture_frame(rtc.AudioFrame(pcm.tobytes(), 48000, 1, 480))
+                    if n % 7 == 0:
+                        cvs.capture_frame(rtc.VideoFrame(320, 240, rtc.VideoBufferType.RGBA, green.tobytes()))
+                    n += 1
+                    if agent_attr("onset.relay") == "on":
+                        r["relay_attr"] = "on"
+                heard = [s for t, s in agent_audio if t >= time.monotonic() - a.measure_seconds]
+                if heard:
+                    r["relay_tone"] = tone_power(np.concatenate(heard), 16000)
+                say(f"tone share in the agent's audio while the caregiver talked: {r['relay_tone']:.2f}")
+                await talk.disconnect()
+            await asyncio.sleep(1.5)
+            await watch.disconnect()
 
     for t in tasks:
         t.cancel()
@@ -306,7 +348,10 @@ async def main(a: argparse.Namespace) -> int:
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--seconds", type=float, default=150.0, help="max seconds to wait for the escalation")
+    p.add_argument("--seconds", type=float, default=240.0, help="max seconds to wait for the escalation")
+    p.add_argument("--page", type=float, default=0.0, metavar="SECONDS",
+                   help="do not play the caregiver: wait this long for a real caregiver page (open the link from "
+                        "runs/live/caregiver_link.txt in a browser) and report whether the caller heard it")
     p.add_argument("--hangup-after", type=float, help="the caller hangs up this many seconds after bridge_ready")
     p.add_argument("--talk-seconds", type=float, default=16.0, help="how long the caregiver talks")
     p.add_argument("--measure-seconds", type=float, default=5.0,

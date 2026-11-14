@@ -64,8 +64,9 @@ def test_no_request_carries_the_tokens_except_the_livekit_connect():
         for banned in ("fetch(", "XMLHttpRequest", "sendBeacon", "new WebSocket", "EventSource", "new Image",
                        "importScripts", "console.", "localStorage", "document.cookie", "postMessage", "window.open"):
             assert banned not in src, f"{name} uses {banned}"
-    # The tokens go into exactly two connect calls: the watch room and the talk room.
-    assert re.findall(r"\.connect\(link\.url, link\.(\w+)", APP) == ["watch", "talk"]
+    # The keys go into LiveKit connect calls and nowhere else: the watch room, the talk room, and
+    # a short visit to the talk room to report that the microphone is blocked.
+    assert re.findall(r"\.connect\(link\.url, ([\w.]+)", APP) == ["link.watch", "talkToken", "talkToken"]
 
 
 def test_fragment_is_wiped_from_the_address_bar_first():
@@ -78,12 +79,15 @@ def test_fragment_is_wiped_from_the_address_bar_first():
 
 def test_page_basics():
     assert 'href="tel:911"' in INDEX
-    assert "playsinline" in INDEX and "Tap to start" in INDEX
+    assert "playsinline" in INDEX and "Tap to join the call" in INDEX
     assert 'name="viewport"' in INDEX
     for state in ("missing", "bad", "expired", "connecting", "reconnecting", "ended", "Waiting for Onset"):
         assert state in APP, state
     # Contract with the agent (agent.py / onset/caregiver.py).
     for key in ("onset.summary", "onset.outcome", "onset.relay", "onset.patient", '"onset-video"', "chert-bridge-", 'topic !== "onset"'):
+        assert key in APP, key
+    # Issue #30: one tap joins and talks; the talk key arrives in the call; problems are reported.
+    for key in ('msg.type === "talk"', "prepareMedia()", "maybeTalk()", '"onset-cg"', '"mic_denied"', '"cut"'):
         assert key in APP, key
     # Watch room never publishes; the talk room never subscribes.
     assert "autoSubscribe: false" in APP
@@ -127,6 +131,13 @@ const out = {
   noExp: L.parse("#u=" + u + "&w=" + jwt({ sub: "x" }), now),
   htmlName: L.parse("#u=" + u + "&w=" + W + "&n=" + encodeURIComponent("<img src=x onerror=alert(1)>Bob") + "&e=" + (now + 60), now),
   longName: L.cleanName("A".repeat(100)).length,
+  short: L.parse("#c/onset-abc.livekit.cloud/" + W.length + "/" + W, now),
+  shortLocal: L.parse("#c/ws:localhost:7880/" + W.length + "/" + W, now),
+  shortCut: L.parse("#c/onset-abc.livekit.cloud/" + W.length + "/" + W.slice(0, -9), now),
+  shortCutEarly: L.parse("#c/onset-abc.livekit.clo", now),
+  shortLonger: L.parse("#c/onset-abc.livekit.cloud/" + W.length + "/" + W + "x", now),
+  shortExpired: L.parse("#c/onset-abc.livekit.cloud/" + W.length + "/" + W, now + 601),
+  shortBadHost: L.parse("#c/evil.example@x/" + W.length + "/" + W, now),
 };
 process.stdout.write(JSON.stringify(out));
 """
@@ -151,5 +162,12 @@ def test_link_parser_under_node():
     assert r["badTalk"]["ok"] and r["badTalk"]["talk"] is None
     assert r["wsLocal"]["ok"] and r["wsLocal"]["url"] == "ws://localhost:7880"
     assert r["expFromJwt"]["ok"] and r["expFromJwt"]["expires"] == 1800000600
+    # the short form: one key, its length first, so a cut link is refused instead of half-working
+    s = r["short"]
+    assert s["ok"] and s["url"] == "wss://onset-abc.livekit.cloud" and s["talk"] is None and s["expires"] == 1800000600
+    assert r["shortLocal"]["ok"] and r["shortLocal"]["url"] == "ws://localhost:7880"
+    assert r["shortCut"] == {"ok": False, "error": "cut"} and r["shortCutEarly"] == {"ok": False, "error": "cut"}
+    assert r["shortLonger"]["error"] == "bad" and r["shortBadHost"]["error"] == "bad"
+    assert r["shortExpired"]["error"] == "expired"
     assert r["htmlName"]["name"] == "img srcx onerroralertBob"
     assert r["longName"] == 40
