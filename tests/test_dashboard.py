@@ -10,6 +10,7 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from tools import dashboard
@@ -257,6 +258,117 @@ def test_page_config_and_baseline(tmp_path):
             assert body["face_asymmetry"] == 0.05 and "sentence" not in body and "patient_id" not in body
             assert (await client.get("/baseline/nobody")).status == 404
             assert (await client.get("/baseline/..%2Fp1")).status == 404
+        finally:
+            await client.close()
+
+    run(go())
+
+
+FAKE_LINK = "https://example.github.io/onset/caregiver/#u=wss%3A%2F%2Fx.livekit.cloud&w=aaa.bbb.ccc&t=ddd.eee.fff&n=Ana&e=1800000000"
+
+
+def test_caregiver_link_is_served_to_this_machine_only_and_never_cached(tmp_path):
+    live = _live(tmp_path)
+
+    async def go():
+        client = await _client(tmp_path)
+        try:
+            missing = await client.get("/caregiver-link")
+            assert missing.status == 404
+            assert "no-store" in missing.headers["Cache-Control"]
+            (live / "caregiver_link.txt").write_text(FAKE_LINK + "\n")
+            (live / "caregiver_link.txt").chmod(0o600)
+            r = await client.get("/caregiver-link")
+            assert r.status == 200 and await r.text() == FAKE_LINK
+            assert r.headers["Content-Type"].startswith("text/plain")
+            assert "no-store" in r.headers["Cache-Control"]
+            assert r.headers["Referrer-Policy"] == "no-referrer"
+            # A DNS-rebinding page reaches 127.0.0.1 but sends its own Host name.
+            evil = await client.get("/caregiver-link", headers={"Host": "evil.example:8765"})
+            assert evil.status == 403 and FAKE_LINK not in await evil.text()
+            ok_host = await client.get("/caregiver-link", headers={"Host": "localhost:8765"})
+            assert ok_host.status == 200
+        finally:
+            await client.close()
+
+    run(go())
+
+
+def test_caregiver_link_refuses_other_peers(tmp_path):
+    from unittest import mock
+
+    from aiohttp.test_utils import make_mocked_request
+
+    live = _live(tmp_path)
+    (live / "caregiver_link.txt").write_text(FAKE_LINK)
+    app = make_app(tmp_path, tmp_path / "baselines")
+
+    async def go():
+        for peer, host, ok in ((("127.0.0.1", 5000), "127.0.0.1:8765", True), (("::1", 5000, 0, 0), "[::1]:8765", True),
+                               (("192.168.1.20", 5000), "127.0.0.1:8765", False), (("10.0.0.5", 5000), "localhost", False)):
+            transport = mock.Mock()
+            transport.get_extra_info.side_effect = lambda key, default=None, peer=peer: peer if key == "peername" else default
+            req = make_mocked_request("GET", "/caregiver-link", headers={"Host": host}, app=app, transport=transport)
+            if ok:
+                resp = await dashboard.caregiver_link(req)
+                assert resp.status == 200 and resp.text == FAKE_LINK
+            else:
+                with pytest.raises(dashboard.web.HTTPForbidden):
+                    await dashboard.caregiver_link(req)
+
+    run(go())
+
+
+def test_caregiver_link_refuses_symlinks_and_junk(tmp_path):
+    live = _live(tmp_path)
+    (tmp_path / "elsewhere.txt").write_text(FAKE_LINK)
+
+    async def go():
+        client = await _client(tmp_path)
+        try:
+            (live / "caregiver_link.txt").symlink_to(tmp_path / "elsewhere.txt")
+            assert (await client.get("/caregiver-link")).status == 404
+            (live / "caregiver_link.txt").unlink()
+            (live / "caregiver_link.txt").write_text("javascript:alert(1)")
+            assert (await client.get("/caregiver-link")).status == 404
+            (live / "caregiver_link.txt").write_text("https://x/" + "a" * 20000)
+            assert (await client.get("/caregiver-link")).status == 404
+        finally:
+            await client.close()
+
+    run(go())
+
+
+def test_caregiver_link_never_reaches_the_event_stream(tmp_path):
+    live = _live(tmp_path)
+    (live / "caregiver_link.txt").write_text(FAKE_LINK)
+    _write(live / "events.jsonl", {"t": 0, "type": "run_started", "run_id": "r"},
+           {"t": 1, "type": "action", "kind": "invite", "live": False, "status": "dry_run", "target": "+1…02", "detail": "link composed"},
+           {"t": 2, "type": "caregiver_join", "status": "invited", "detail": ""},
+           {"t": 3, "type": "run_ended", "reason": "complete"},
+           {"t": 40, "type": "caregiver_join", "status": "talking", "detail": ""})
+
+    async def go():
+        client = await _client(tmp_path)
+        try:
+            seen = await SSE(await client.get("/events")).until("caught_up")
+            body = "\n".join(d for _, d in seen)
+            assert "caregiver_join" in body and "aaa.bbb.ccc" not in body and "caregiver_link" not in body
+            assert '"talking"' in body.split("run_ended", 1)[1]  # caregiver events can follow run_ended
+        finally:
+            await client.close()
+
+    run(go())
+
+
+def test_page_renders_actions_presence_and_caregiver_button(tmp_path):
+    async def go():
+        client = await _client(tmp_path)
+        try:
+            html = await (await client.get("/")).text()
+            for needle in ('case "action"', 'case "caregiver_join"', "DRY RUN", "LIVE", "Open caregiver view",
+                           'fetch("/caregiver-link"', "invited", "joined", "talking", "noopener", "no caregiver phone"):
+                assert needle in html, needle
         finally:
             await client.close()
 

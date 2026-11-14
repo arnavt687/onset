@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- The link's keys live in the #fragment, which browsers never send to this host. Nothing here
+     talks to anything but the LiveKit room: no analytics, no fonts, no other requests. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src wss://*.livekit.cloud https://*.livekit.cloud ws://localhost:* ws://127.0.0.1:* http://localhost:* http://127.0.0.1:*; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#04070c">
+<title>Onset caregiver view</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="alert" id="banner">
+  <p class="alert-text" id="alertText">Onset: a check-in found a change. Call 911 if you can't reach them.</p>
+  <a class="btn btn-911" href="tel:911" id="call911">Call 911</a>
+</header>
+
+<main>
+  <section class="stage" id="stage" aria-label="Video from the call">
+    <video id="mainVideo" class="main" playsinline autoplay muted hidden></video>
+    <video id="pipVideo" class="pip" playsinline autoplay muted hidden aria-label="Their own camera"></video>
+    <video id="selfVideo" class="self" playsinline autoplay muted hidden aria-label="Your camera"></video>
+    <p class="stage-msg" id="stageMsg">Loading…</p>
+  </section>
+
+  <p class="status" id="status" role="status" aria-live="polite"><i aria-hidden="true"></i><span id="statusText">Loading…</span></p>
+
+  <section class="summary" aria-live="polite">
+    <h2>What Onset noticed</h2>
+    <p id="summary">What Onset noticed appears here once you're connected.</p>
+  </section>
+
+  <div class="controls">
+    <button type="button" class="btn btn-primary" id="startBtn" hidden>Tap to start</button>
+    <button type="button" class="btn btn-primary" id="soundBtn" hidden>Tap to hear sound</button>
+    <button type="button" class="btn btn-talk" id="talkBtn" hidden>Talk to them</button>
+    <div class="row" id="talkRow" hidden>
+      <button type="button" class="btn btn-quiet" id="muteBtn" aria-pressed="false">Mute</button>
+      <button type="button" class="btn btn-quiet" id="leaveBtn">Leave</button>
+    </div>
+    <p class="hint" id="hint" hidden></p>
+  </div>
+
+  <noscript><p class="hint">This page needs JavaScript to show the call. If you can't reach them, call 911.</p></noscript>
+
+  <p class="fine">This private link is for you only; please don't forward it. They can see and hear you only after you tap Talk. Onset is a research prototype, not a medical device, and it never says someone is fine.</p>
+  <div id="audio" hidden></div>
+</main>
+
+<!-- link.js and app.js run first so the keys leave the address bar before anything else loads. -->
+<script src="link.js"></script>
+<script src="app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.23.0/dist/livekit-client.umd.js" integrity="sha384-HkA7rQNo8H04l1p4zoXX1Cy+h9YoYp8LvKt4vfMFhv4KFk07UkrNwIUnyBum8Pw6" crossorigin="anonymous"></script>
+</body>
+</html>

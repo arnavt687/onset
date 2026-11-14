@@ -1,0 +1,51 @@
+# Publishes the caregiver page (web/caregiver/) to GitHub Pages at
+#   https://arnavt687.github.io/onset/caregiver/
+# The repo owner must first turn Pages on: Settings > Pages > Source: GitHub Actions.
+# Only web/caregiver/ is published (as caregiver/ inside the site); nothing else in the repo is.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/caregiver/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage the site
+        run: |
+          mkdir -p _site/caregiver
+          cp -R web/caregiver/. _site/caregiver/
+          touch _site/.nojekyll
+          find _site -type f | sort
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}caregiver/
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

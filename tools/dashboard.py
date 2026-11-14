@@ -19,6 +19,10 @@ It serves web/dashboard.html and reads what the call flow writes (see onset/even
     GET /api/history?patient=<id>
                         that person's archived check-ins and trends (onset/history.py), for the
                         Trend panel; 400 for an invalid id, an empty history if there are none
+    GET /caregiver-link the private caregiver link (runs/live/caregiver_link.txt, written by the agent)
+                        for the "Open caregiver view" demo button. Loopback peers with a localhost
+                        Host header only, never cached; 404 when there is none. It holds LiveKit
+                        tokens, so it never goes into events or logs.
     GET /healthz        "ok"
 
 It binds 127.0.0.1 only: frames and audio can hold a person's face and voice.
@@ -132,6 +136,37 @@ async def history(request: web.Request) -> web.Response:
     for c in body["checkins"]:
         c.pop("artifacts", None)  # the page has no use for file details
     return web.json_response(body, headers=NO_CACHE)
+
+
+CAREGIVER_LINK = "caregiver_link.txt"
+CAREGIVER_LINK_MAX = 16 * 1024
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
+PRIVATE = {**NO_CACHE, "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
+
+
+def _from_this_machine(request: web.Request) -> bool:
+    """A loopback peer that asked for localhost by name (a DNS-rebinding page sends its own Host)."""
+    peer = (request.remote or "").strip()
+    if not (peer.startswith("127.") or peer in ("::1", "::ffff:127.0.0.1")):
+        return False
+    host = (request.host or "").strip().lower()
+    host = host[: host.find("]") + 1] if host.startswith("[") else host.split(":", 1)[0]
+    return host in LOCAL_HOSTS
+
+
+async def caregiver_link(request: web.Request) -> web.Response:
+    if not _from_this_machine(request):
+        raise web.HTTPForbidden(text="local only", headers=PRIVATE)
+    path = _live(request) / CAREGIVER_LINK
+    try:
+        if not path.is_file() or path.is_symlink() or path.stat().st_size > CAREGIVER_LINK_MAX:
+            raise OSError
+        text = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        raise web.HTTPNotFound(text="no caregiver link", headers=PRIVATE) from None
+    if not text.startswith(("https://", "http://localhost", "http://127.0.0.1")):
+        raise web.HTTPNotFound(text="no caregiver link", headers=PRIVATE)
+    return web.Response(text=text, content_type="text/plain", headers=PRIVATE)
 
 
 # --------------------------------------------------------------------------- SSE tail
@@ -268,6 +303,7 @@ def make_app(runs: Path = DEFAULT_RUNS, baselines: Path = DEFAULT_BASELINES) -> 
     app.router.add_get("/config", config)
     app.router.add_get("/baseline/{patient_id}", baseline)
     app.router.add_get("/api/history", history)
+    app.router.add_get("/caregiver-link", caregiver_link)
     return app
 
 
