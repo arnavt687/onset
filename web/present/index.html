@@ -161,6 +161,19 @@
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-5a3.5 3.5 0 0 0-7 0v5A3.5 3.5 0 0 0 12 15Zm6-3.5a6 6 0 0 1-12 0M12 17.5V21m-3.5 0h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <span id="voice-text">Voice off</span><kbd>V</kbd>
   </button>
+  <div id="voice-panel" hidden>
+    <div class="vp-head"><b>Hands-free</b><button id="voice-toggle">Turn voice on</button></div>
+    <label class="vp-field"><span>Microphone</span><select id="voice-mic"><option value="">The computer’s default microphone</option></select></label>
+    <div class="vp-meter" aria-hidden="true"><i id="voice-level"></i></div>
+    <p class="vp-using" id="voice-using"></p>
+    <p class="vp-heard"><span>Heard</span><b id="voice-heard">…</b></p>
+    <p class="vp-hint" id="voice-hint"></p>
+    <p class="vp-hint" id="voice-route" hidden>This browser version always listens on its own default microphone. Choose it at chrome://settings/content/microphone, or update Chrome.</p>
+    <div class="vp-rule"></div>
+    <p class="vp-tip"><b>AirPod press = clicker.</b> Double press: next. Triple press: back. Works for whoever wears either one, with voice on or off.</p>
+    <label class="vp-check"><input type="checkbox" id="voice-single" checked><span>A single press also goes next</span></label>
+    <p class="vp-tip">AirPods use one microphone at a time. With one each, pick the laptop’s microphone so it hears you both.</p>
+  </div>
 
   <nav id="rail" aria-label="Sections"></nav>
   <button class="arrow prev" id="prev" aria-label="Back">‹</button>
@@ -172,6 +185,7 @@
     <p><kbd>→</kbd> <kbd>Space</kbd> <kbd>PgDn</kbd> next · <kbd>←</kbd> <kbd>PgUp</kbd> back · <kbd>Home</kbd> <kbd>End</kbd></p>
     <p><kbd>D</kbd> jump to the live demo · <kbd>F</kbd> full screen · <kbd>N</kbd> notes · <kbd>M</kbd> motion on/off</p>
     <p><kbd>V</kbd> voice: say “next slide”, “go back”, “start the demo”, “open the live view”, “show a change”</p>
+    <p>AirPod or media-key press: double = next, triple = back · click the microphone to pick which mic listens</p>
     <p>The idea: <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> pick a check, <kbd>A</kbd> act a change</p>
     <p>Live demo: <kbd>L</kbd> live call, <kbd>B</kbd> browser demo · When it changes: <kbd>R</kbd> replay</p>
   </div>

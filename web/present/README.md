@@ -64,6 +64,28 @@ and an internet connection**: the browser sends the microphone audio to its make
 service while voice is on. Without those, the keys and the clicker still work. During the call the
 microphone hears the room, so keep to the phrases above, or press `V` to switch it off.
 
+### Which microphone, and AirPods
+
+Click the microphone button (top right) for the hands-free panel: pick the microphone, watch the
+level meter move when you talk, and read what it heard. If the meter does not move, that
+microphone is not picking you up.
+
+- **AirPods only appear in the list when Windows has them as a microphone.** Connect them to
+  this computer in Settings > Bluetooth & devices (not just to your phone); they then show up as
+  "Headset (AirPods ... Hands-Free)". Pick that.
+- **AirPods use one microphone at a time**, so with one each, only one of you is heard well.
+  The laptop's microphone hears you both; that is the better choice for two presenters.
+- On Windows the AirPods' microphone is phone-call quality, so recognition is less accurate than
+  with the laptop's. Near-misses such as "next slight" or "necks slide" still count.
+
+### AirPod press as a clicker
+
+With the AirPods connected to this computer for sound, a press on either one moves the deck, voice
+on or off: **double press = next, triple press = back**, and a single press also goes next
+(untick it in the panel if it fires by accident). Keyboard media keys do the same. The page
+plays ten seconds of inaudible sound on a loop so that the browser hands it those buttons; click
+or press a key once after opening the page to start it.
+
 ## Keys
 
 | Key | Does |

@@ -300,8 +300,10 @@ def test_presentation_scenes_and_live_demo_hooks():
     assert ids.index("demo") == len(ids) // 2
     assert all(f"{i}:" in world for i in ids) and "run_started" in deck and "EventSource('/events')" in deck
     # voice: whole phrases only, off until asked for, and it says what it needs
-    assert "SpeechRecognition" in deck and "next slide" in deck and "localStorage.getItem('onset.voice')" in deck
+    assert "SpeechRecognition" in deck and "next slide" in deck and "store.get('onset.voice')" in deck
     assert 'id="voice"' in html and "internet connection" in (root / "README.md").read_text(encoding="utf-8")
+    # the microphone is picked on the page (AirPods), and an earbud press is a clicker
+    assert 'id="voice-mic"' in html and "getUserMedia" in deck and "setActionHandler" in deck and "nexttrack" in deck
     for gone in ("never diagnoses", "No LLM", "synthetic", "dry run"):  # wording the team dropped
         assert gone.lower() not in html.lower(), gone
 

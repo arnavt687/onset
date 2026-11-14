@@ -211,6 +211,7 @@ function tick(now) {
   if (id === 'problem') dayN.textContent = world ? world.state.dayLit : st ? 90 : 0;
   if (id === 'measure' && acting) { v += (vTo - v) * .06; if (Math.abs(vTo - v) < .004) { v = vTo; acting = 0; } act.value = v * 100; meter(); }
   if (id === 'escalate') escalateTick(now);
+  voiceTick(now);
   if (!$('#notes').hidden) { const s = (now - t0) / 1000 | 0; $('#clock').textContent = `${s / 60 | 0}:${String(s % 60).padStart(2, '0')}`; }
 }
 requestAnimationFrame(tick);
@@ -235,74 +236,193 @@ let touchX = null;
 stage.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: true });
 stage.addEventListener('touchend', e => { if (touchX == null) return; const dx = e.changedTouches[0].clientX - touchX; touchX = null; if (Math.abs(dx) > 70 && !e.target.closest('input,iframe,button,a')) (dx < 0 ? next : back)(); }, { passive: true });
 
-/* ───────── voice: say "next slide" and it moves
-   The browser's own speech recognition (Chrome, Edge). It needs the microphone and an internet
-   connection: the browser sends the audio to its maker's speech service. Off until V is pressed.
-   Commands are whole phrases ("next slide", not "next"), so ordinary talking does not move the deck. */
+/* ───────── hands-free: say "next slide", or press an AirPod
+   Voice is the browser's own speech recognition (Chrome, Edge). It needs a microphone and an
+   internet connection: the browser sends the audio to its maker's speech service. Off until V.
+   - The microphone is chosen here (AirPods, the laptop, a headset), not left to the browser's
+     default, and a level meter and the words it heard show whether it is picking you up.
+   - Commands are whole phrases ("next slide", not "next"), so ordinary talking does not move
+     the deck; near-misses the recogniser is known for ("next slight") count.
+   - Earbud and keyboard media buttons are a clicker: next track = next, previous track = back. */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-const voiceBtn = $('#voice'), voiceText = $('#voice-text');
+const voiceBtn = $('#voice'), voiceText = $('#voice-text'), voicePanel = $('#voice-panel');
 const VOICE_IDLE = 'Say “next slide”';
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch { /* private window */ } } };
 const inScene = id => SCENES[si].id === id;
+const measureAt = step => show(SCENES.findIndex(s => s.id === 'measure'), step);
 const COMMANDS = [
-  [/\b(next slide|next one|next please|move on|go forward|keep going)\b/, 'Next', () => next()],
-  [/\b(previous slide|go back|back one|one back)\b/, 'Back', () => back()],
+  [/\b(next|nex|necks|text) (slide|slides|slid|slight|side|sly|flight)\b|\b(next one|next please|move on|go forward|keep going|go next)\b/, 'Next', () => next()],
+  [/\b(previous|previews) (slide|slides|slid|side)\b|\b(go back|go black|goback|back one|one back|back a slide)\b/, 'Back', () => back()],
   [/\b(first slide|start over|back to the (start|beginning))\b/, 'First slide', () => show(0, 0)],
   [/\b(last slide|final slide)\b/, 'Last slide', () => show(SCENES.length - 1, 0)],
   [/\b(open|show|go to|switch to) (the |us the )?(live view|live call|dashboard)\b/, 'Live view', () => { show(DEMO, 1); mount('live'); }],
   [/\b(open|show|go to|switch to|try) (the )?browser demo\b/, 'Browser demo', () => { show(DEMO, 1); mount('try'); }],
   [/\b(start|go to|show|jump to|time for) (the |a |our )?(live )?demo\b|\blet'?s call it\b/, 'Live demo', () => show(DEMO, 0)],
-  [/\b(show|go to|check) (me )?(the )?smile\b/, 'Smile', () => show(SCENES.findIndex(s => s.id === 'measure'), 0)],
-  [/\b(show|go to|check) (me )?(the )?arms\b/, 'Arms', () => show(SCENES.findIndex(s => s.id === 'measure'), 1)],
-  [/\b(show|go to|check) (me )?(the )?speech\b/, 'Speech', () => show(SCENES.findIndex(s => s.id === 'measure'), 2)],
+  [/\b(show|go to|check) (me )?(the )?smile\b/, 'Smile', () => measureAt(0)],
+  [/\b(show|go to|check) (me )?(the )?arms\b/, 'Arms', () => measureAt(1)],
+  [/\b(show|go to|check) (me )?(the )?speech\b/, 'Speech', () => measureAt(2)],
   [/\b(show|act|make) a change\b|\bback to (normal|usual)\b/, 'Act a change', () => { if (inScene('measure')) actChange(); }],
   [/\b(play (it|that) again|replay|show (it|that) again)\b/, 'Replay', () => { if (inScene('escalate')) { escT0 = performance.now(); escHold = -1; } }],
   [/\b(stop listening|voice off)\b/, 'Voice off', () => setVoice(false)],
 ];
-const voice = { on: false, rec: null, consumed: [], lastAt: 0, flash: 0 };
-function hear(text, index = 0) {
-  // only what is new in this utterance, so a phrase fires once however often the browser revises it
-  const t = text.toLowerCase().replace(/[’`]/g, "'"), from = voice.consumed[index] || 0;
+const voice = { on: false, rec: null, fired: [], lastAt: 0, flash: 0, stream: null, track: null, ctx: null, analyser: null, buf: null,
+  deviceId: store.get('onset.mic') || '', level: 0, loudAt: 0, startedAt: 0,
+  // newer Chrome can be handed a microphone track; older ones always use the browser's default
+  canRoute: !!SR && 'processLocally' in SR.prototype };
+const norm = t => String(t).toLowerCase().replace(/[’`]/g, "'").replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+function fire(label, run, said) {
+  if (performance.now() - voice.lastAt < 450) return null; // one press or phrase, reported twice
+  voice.lastAt = performance.now();
+  run();
+  voiceBtn.classList.add('heard'); voiceText.textContent = `${said} → ${label}`;
+  clearTimeout(voice.flash); voice.flash = setTimeout(() => { voiceBtn.classList.remove('heard'); voiceText.textContent = voice.on ? VOICE_IDLE : 'Voice off'; }, 1400);
+  return label;
+}
+/* alts: what the recogniser thinks was said, best first. index: which utterance. A phrase fires
+   once per time it is said, however often the recogniser revises the utterance. */
+function hear(alts, index = 0, final = true) {
+  const texts = (Array.isArray(alts) ? alts : [alts]).map(norm).filter(Boolean);
+  if (!texts.length) return null;
+  $('#voice-heard').textContent = texts[0].length > 64 ? '…' + texts[0].slice(-64) : texts[0];
+  const fired = voice.fired[index] || (voice.fired[index] = {});
   for (const [re, label, run] of COMMANDS) {
-    const m = re.exec(t.slice(from));
-    if (!m) continue;
-    voice.consumed[index] = from + m.index + m[0].length;
-    if (performance.now() - voice.lastAt < 700) return null; // the same words, heard twice
-    voice.lastAt = performance.now();
-    run();
-    voiceBtn.classList.add('heard'); voiceText.textContent = `“${m[0]}” → ${label}`;
-    clearTimeout(voice.flash); voice.flash = setTimeout(() => { voiceBtn.classList.remove('heard'); if (voice.on) voiceText.textContent = VOICE_IDLE; }, 1400);
-    return label;
+    const m = texts[0].match(new RegExp(re.source, 'g'));
+    if (m && m.length > (fired[label] || 0)) { fired[label] = m.length; return fire(label, run, `“${m[m.length - 1]}”`); }
+  }
+  // nothing in the best guess: once the utterance is complete, try the recogniser's other guesses
+  if (final && !Object.keys(fired).length) for (const t of texts.slice(1)) for (const [re, label, run] of COMMANDS) {
+    const m = re.exec(t);
+    if (m) { fired[label] = 1; return fire(label, run, `“${m[0]}”`); }
   }
   return null;
 }
-function voiceError(msg) { voice.on = false; voiceBtn.classList.remove('on'); voiceBtn.classList.add('err'); voiceBtn.setAttribute('aria-pressed', 'false'); voiceText.textContent = msg; }
-function setVoice(on) {
-  voiceBtn.classList.remove('err', 'heard');
-  if (!SR) return voiceError('Voice needs Chrome or Edge');
-  voice.on = on; voiceBtn.classList.toggle('on', on); voiceBtn.setAttribute('aria-pressed', String(on));
-  voiceText.textContent = on ? VOICE_IDLE : 'Voice off';
-  try { localStorage.setItem('onset.voice', on ? '1' : '0'); } catch { /* private window */ }
-  if (!on) { try { voice.rec?.stop(); } catch { /* not started */ } return; }
+
+/* the microphone: the one picked in the panel, with a level meter on it */
+function closeMic() {
+  try { voice.stream?.getTracks().forEach(t => { t.onended = null; t.stop(); }); } catch { /* gone */ }
+  try { voice.node?.disconnect(); } catch { /* gone */ }
+  voice.stream = voice.track = voice.analyser = voice.node = null; voice.level = 0;
+}
+async function openMic() {
+  closeMic();
+  const base = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: voice.deviceId ? { ...base, deviceId: { exact: voice.deviceId } } : base }); }
+  catch (err) {
+    if (!voice.deviceId || !['OverconstrainedError', 'NotFoundError'].includes(err.name)) throw err;
+    voice.deviceId = ''; store.set('onset.mic', ''); // the chosen microphone is gone (AirPods in the case)
+    stream = await navigator.mediaDevices.getUserMedia({ audio: base });
+  }
+  voice.stream = stream; voice.track = stream.getAudioTracks()[0];
+  voice.track.onended = () => { if (voice.on) restartVoice(); };
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (AC) {
+    voice.ctx = voice.ctx || new AC(); try { await voice.ctx.resume(); } catch { /* needs a click */ }
+    voice.node = voice.ctx.createMediaStreamSource(stream); voice.analyser = voice.ctx.createAnalyser(); voice.analyser.fftSize = 1024;
+    voice.buf = new Float32Array(voice.analyser.fftSize); voice.node.connect(voice.analyser);
+  }
+  voice.startedAt = voice.loudAt = performance.now();
+  await listMics();
+}
+async function listMics() {
+  const sel = $('#voice-mic');
+  let mics = [];
+  try { mics = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'communications'); } catch { /* not allowed yet */ }
+  const using = voice.track?.getSettings?.().deviceId || '';
+  sel.replaceChildren();
+  const add = (value, text) => { const o = document.createElement('option'); o.value = value; o.textContent = text; sel.append(o); };
+  add('', 'The computer’s default microphone');
+  for (const d of mics) if (d.deviceId !== 'default') add(d.deviceId, d.label || 'Microphone');
+  sel.value = voice.deviceId && [...sel.options].some(o => o.value === voice.deviceId) ? voice.deviceId : '';
+  const label = mics.find(d => d.deviceId === using)?.label || voice.track?.label || '';
+  $('#voice-using').textContent = label ? `Listening on: ${label}` : '';
+  $('#voice-route').hidden = voice.canRoute || !voice.deviceId;
+}
+function startRec() {
   if (!voice.rec) {
     const rec = new SR(); voice.rec = rec;
-    rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US';
-    rec.onresult = e => { for (let i = e.resultIndex; i < e.results.length; i++) hear(e.results[i][0].transcript, i); };
-    rec.onstart = () => { voice.consumed = []; };
+    rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 4;
+    rec.onresult = e => { for (let i = e.resultIndex; i < e.results.length; i++) hear(Array.from(e.results[i], a => a.transcript), i, e.results[i].isFinal); };
+    rec.onstart = () => { voice.fired = []; };
     rec.onerror = e => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') voiceError('Microphone blocked: allow it, then press V');
       else if (e.error === 'network') voiceError('Voice needs an internet connection');
-      else if (e.error === 'audio-capture') voiceError('No microphone found');
+      else if (e.error === 'audio-capture') voiceError('No sound from that microphone');
     };
-    rec.onend = () => { if (voice.on) setTimeout(() => { try { rec.start(); } catch { /* already running */ } }, 250); }; // the browser stops after a silence
+    rec.onend = () => { if (voice.on) setTimeout(startRec, 200); }; // the browser stops after a silence
   }
-  try { voice.rec.start(); } catch { /* already running */ }
+  try { if (voice.canRoute && voice.track) voice.rec.start(voice.track); else voice.rec.start(); }
+  catch (err) { if (err.name !== 'InvalidStateError') { try { voice.rec.start(); } catch { /* already running */ } } }
 }
-voiceBtn.addEventListener('click', () => setVoice(!voice.on));
+function voiceError(msg) {
+  voice.on = false; try { voice.rec?.abort(); } catch { /* not started */ } closeMic();
+  voiceBtn.classList.remove('on'); voiceBtn.classList.add('err'); voiceBtn.setAttribute('aria-pressed', 'false');
+  voiceText.textContent = msg; $('#voice-toggle').textContent = 'Turn voice on'; $('#voice-hint').textContent = msg;
+}
+async function restartVoice() { if (!voice.on) return; try { voice.rec?.abort(); } catch { /* not started */ } try { await openMic(); } catch { return voiceError('Microphone blocked: allow it, then press V'); } }
+async function setVoice(on) {
+  voiceBtn.classList.remove('err', 'heard'); $('#voice-hint').textContent = '';
+  if (!SR) return voiceError('Voice needs Chrome or Edge');
+  voice.on = on; voiceBtn.classList.toggle('on', on); voiceBtn.setAttribute('aria-pressed', String(on));
+  voiceText.textContent = on ? VOICE_IDLE : 'Voice off'; $('#voice-toggle').textContent = on ? 'Turn voice off' : 'Turn voice on';
+  store.set('onset.voice', on ? '1' : '0');
+  if (!on) { try { voice.rec?.abort(); } catch { /* not started */ } closeMic(); return; }
+  startClicker();
+  try { await openMic(); } catch { return voiceError('Microphone blocked: allow it, then press V'); }
+  if (voice.on) startRec();
+}
+function voiceTick(now) { // the level meter, and a nudge when the microphone is silent
+  if (!voice.analyser) { voiceBtn.style.setProperty('--lvl', 0); return; }
+  voice.analyser.getFloatTimeDomainData(voice.buf);
+  let s = 0; for (let i = 0; i < voice.buf.length; i++) s += voice.buf[i] * voice.buf[i];
+  const db = 20 * Math.log10(Math.sqrt(s / voice.buf.length) + 1e-7), lvl = clamp((db + 62) / 50);
+  voice.level += (lvl - voice.level) * (lvl > voice.level ? .5 : .12);
+  if (db > -50) voice.loudAt = now;
+  voiceBtn.style.setProperty('--lvl', voice.level.toFixed(3)); $('#voice-level').style.width = `${voice.level * 100}%`;
+  const silent = now - voice.loudAt > 5000;
+  $('#voice-hint').textContent = silent ? 'This microphone is silent. Pick another one above, or check it is not muted.' : '';
+  voiceBtn.classList.toggle('quiet', silent);
+}
+
+/* earbud and keyboard media buttons as a clicker. A page only gets those buttons while it is
+   playing sound, so it loops ten seconds of near-silence (started by the first click or key). */
+const clicker = { on: false, audio: null, single: store.get('onset.single') !== '0' };
+function startClicker() {
+  if (clicker.audio || !('mediaSession' in navigator)) return;
+  const rate = 8000, n = rate * 10, buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); str(36, 'data'); dv.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, (Math.random() * 5 - 2.5) | 0, true); // inaudible, but not digital silence
+  const a = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }))); a.loop = true; a.volume = .25; clicker.audio = a;
+  const keep = () => a.play().catch(() => { /* needs a click first */ });
+  const press = kind => { keep(); fire(kind === 'back' ? 'Back' : 'Next', kind === 'back' ? back : next, 'Button press'); };
+  a.addEventListener('pause', () => { if (clicker.on) setTimeout(keep, 50); });
+  a.play().then(() => {
+    clicker.on = true;
+    try { navigator.mediaSession.metadata = new MediaMetadata({ title: 'Onset presentation', artist: 'Press: next slide' }); } catch { /* optional */ }
+    const set = (name, fn) => { try { navigator.mediaSession.setActionHandler(name, fn); } catch { /* not supported here */ } };
+    set('nexttrack', () => press('next')); set('previoustrack', () => press('back'));
+    set('play', () => (clicker.single ? press('next') : keep())); set('pause', () => (clicker.single ? press('next') : keep()));
+  }).catch(() => { clicker.audio = null; });
+}
+addEventListener('pointerdown', startClicker, { once: true }); addEventListener('keydown', startClicker, { once: true });
+
+/* the panel behind the microphone button */
+voiceBtn.addEventListener('click', () => { voicePanel.hidden = !voicePanel.hidden; if (!voicePanel.hidden) listMics(); });
+$('#voice-toggle').addEventListener('click', () => setVoice(!voice.on));
+$('#voice-mic').addEventListener('change', e => { voice.deviceId = e.target.value; store.set('onset.mic', voice.deviceId); if (voice.on) restartVoice(); else listMics(); });
+$('#voice-single').checked = clicker.single;
+$('#voice-single').addEventListener('change', e => { clicker.single = e.target.checked; store.set('onset.single', clicker.single ? '1' : '0'); });
+addEventListener('pointerdown', e => { if (!voicePanel.hidden && !e.target.closest('#voice-panel,#voice')) voicePanel.hidden = true; });
+navigator.mediaDevices?.addEventListener?.('devicechange', () => { listMics(); });
 
 /* ───────── keys */
 function setMotion(on) { motion = on; document.body.classList.toggle('still', !on); world?.setMotion(on); }
 addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.closest?.('#voice-panel select')) return;
   const id = SCENES[si].id, k = e.key, inRange = e.target === act;
   if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Enter') { if (inRange && k === 'ArrowRight') return; e.preventDefault(); next(); }
   else if (k === 'ArrowLeft' || k === 'PageUp' || k === 'Backspace') { if (inRange && k === 'ArrowLeft') return; e.preventDefault(); back(); }
@@ -315,7 +435,7 @@ addEventListener('keydown', e => {
   else if (k === 'm' || k === 'M') setMotion(!motion);
   else if (k === 'v' || k === 'V') setVoice(!voice.on);
   else if (k === '?' || k === 'h' || k === 'H') $('#help').hidden = !$('#help').hidden;
-  else if (k === 'Escape') $('#help').hidden = true;
+  else if (k === 'Escape') { $('#help').hidden = true; voicePanel.hidden = true; }
   else if (id === 'measure' && '123'.includes(k)) show(si, +k - 1);
   else if (id === 'measure' && (k === 'a' || k === 'A')) actChange();
   else if (id === 'escalate' && (k === 'r' || k === 'R')) { escT0 = performance.now(); escHold = -1; }
@@ -340,6 +460,6 @@ addEventListener('keydown', e => {
   const m = /^#(\d+)(?:\.(\d+))?$/.exec(location.hash);
   show(m ? +m[1] - 1 : 0, m && m[2] ? +m[2] - 1 : 0, { instant: true });
   addEventListener('hashchange', () => { const h = /^#(\d+)(?:\.(\d+))?$/.exec(location.hash); if (h) show(+h[1] - 1, h[2] ? +h[2] - 1 : 0); });
-  try { if (params.has('voice') || localStorage.getItem('onset.voice') === '1') setVoice(true); } catch { /* private window */ }
+  if (params.has('voice') || store.get('onset.voice') === '1') setVoice(true);
   window.onsetDeck = { show, next, back, world, live, hear, state: () => ({ scene: SCENES[si].id, step: st }) };
 })();
