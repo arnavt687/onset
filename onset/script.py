@@ -25,14 +25,16 @@ GREETING = Line(
     caption="Hello, this is Onset. A one-minute check-in.",
 )
 
+# Face-step captions sit at the top of the picture: keep them to one short line so they
+# do not cover the face (the measurement uses the raw camera frame either way).
 FACE_NEUTRAL = Line(
     say="Please look at the camera, and relax your face.",
-    caption="Look at the camera. Relax your face.",
+    caption="Look here. Relax your face.",
 )
 
 FACE_SMILE = Line(
     say="Now give me a big smile, and hold it.",
-    caption="Now give a big smile. Hold it.",
+    caption="Big smile! Hold it.",
 )
 
 ARMS_RAISE = Line(

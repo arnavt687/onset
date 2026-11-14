@@ -345,6 +345,57 @@ def test_render_shapes_and_caption_size(tmp_path):
         assert not info["lines"][-1].endswith("…"), f"caption too long for 3 lines: {line.caption!r}"
 
 
+def test_record_then_replay_flow(tmp_path, monkeypatch):
+    """A live flow records the call; replay_flow re-runs it and reaches the same outcome."""
+    import onset.flow as F
+    from tools.record import Recorder
+    from tools import replay_flow
+
+    from onset import decide
+
+    decide.save_baseline(baseline(), base_dir=tmp_path / "b")
+    stub_face = lambda: StubFace(face(asym=0.9))  # noqa: E731 - a change: escalate
+    stub_arms = lambda: StubArms(arms())  # noqa: E731
+
+    async def stub_speech(clip, expected):
+        assert len(clip.pcm) > 0
+        return speech()
+
+    rec = Recorder(tmp_path / "rec", "call", enabled=True, fmt="jpg")
+    live = CheckFlow(sentence=SENTENCE, face_meter_factory=stub_face, arm_meter_factory=stub_arms,
+                     speech_check=stub_speech, baseline_dir=tmp_path / "b", caregiver_phone="",
+                     caregiver_send=False, recorder=rec)
+    t = 100.0  # any clock origin
+    live.start(t)
+    img = np.full((72, 128, 3), 80, np.uint8)
+    while not live.done and t < 300:
+        live.on_frame(img, t)
+        live.on_audio((np.ones(320, np.int16) * 2000).tobytes(), 16000, t)
+        live.tick(t)
+        if live.needs_evaluation:
+            evaluate(live)
+        t += 1 / FPS
+    rec.close()
+
+    monkeypatch.setattr(F, "_default_face_meter", stub_face)
+    monkeypatch.setattr(F, "_default_arm_meter", stub_arms)
+    monkeypatch.setattr(F, "_default_speech_check", stub_speech)
+    monkeypatch.setattr(F, "_default_send", lambda p, t, d: _coro({"status": "dry_run"}))
+    flow = asyncio.run(replay_flow.replay(str(tmp_path / "rec"), fast=True, voice=False, patient="demo",
+                                          runs_root=tmp_path / "runs", baseline_dir=tmp_path / "b"))
+    d = [e for e in flow.events if e["type"] == "decision"]
+    assert d and d[0]["outcome"].value == "escalate"
+    assert steps(flow)[:4] == ["greet", "face_neutral", "face_smile", "arms_wait"]
+    assert (tmp_path / "runs" / "live" / "events.jsonl").exists()
+
+
+def test_face_captions_are_one_line():
+    for line in (script.FACE_NEUTRAL, script.FACE_SMILE):
+        _, info = overlay.caption_layer(line.caption, 640, 360, "top")
+        assert len(info["lines"]) == 1, (line.caption, info["lines"])
+        assert info["box"][3] <= 100  # the panel covers at most the forehead band (~28%)
+
+
 def test_script_never_says_banned_words():
     for line in script.ALL_LINES + [script.sentence_prompt(SENTENCE), script.sentence_go(SENTENCE)]:
         assert not BANNED.search(line.say) and not BANNED.search(line.caption), line
