@@ -174,7 +174,31 @@ def _valid_key(key: str) -> bool:
     return 8 <= len(key) <= 200 and key.isascii() and key.isprintable()
 
 
-# --------------------------------------------------------------------------- helpers
+# What Chert's refusal codes mean for a caregiver text, in words the person running the line can
+# act on. The codes and their meanings are Chert's own (its CLI lists them in dev/onboard.js);
+# `recipient_not_verified` is what the API answered for a phone that had not joined (issue #29).
+_NOT_JOINED = ("this phone has not joined the line. From that phone, text the join phrase to the line's number as a "
+               "one-to-one iMessage and wait for Chert's \"Verified\" reply (tools/chert_join.py shows the phrase, the "
+               "number and what to check)")
+REFUSALS = {
+    "recipient_not_verified": _NOT_JOINED,
+    "recipient_verification_required": _NOT_JOINED,
+    "recipient_confirmation_pending": "the phone has joined, but Chert has not sent its \"Verified\" reply yet: try again in a few seconds",
+    "shared_recipient_conflict": "this phone already belongs to another project on the same shared line, so this project cannot text it",
+    "shared_contact_limit": "this project has reached its limit of phones",
+    "shared_quota_exceeded": "this project has used its message allowance for now; it resets later",
+    "shared_entitlement_expired": "this project's trial or plan has ended, so Chert has paused texting until it is renewed",
+    "credit_exhausted": "this project has no trial credit left",
+    "cli_scope_denied": "a Chert CLI sign-in cannot send messages: set CHERT_API_KEY to a project key (ftk_...)",
+}
+
+
+def explain(code: str | None, detail: str = "") -> str:
+    """Chert's refusal, with what it means in front when Onset knows."""
+    meaning = REFUSALS.get(code or "")
+    if not meaning:
+        return detail
+    return f"{meaning[0].upper()}{meaning[1:]}. [Chert: {detail}]" if detail else f"{meaning[0].upper()}{meaning[1:]}."
 
 
 def _result(status: str, *, accepted: bool = False, error: str | None = None, detail: str = "", **extra: Any) -> dict:
@@ -372,7 +396,8 @@ async def _post_message(cfg, transport, line_id, recipient, text, key, reread_at
         if retry_after:
             detail += f" (retry after {_safe_text(retry_after, 20)} s)"
         log.warning("chert: iMessage refused: %s (HTTP %s, request %s)", code, resp.status, rid)
-        return _result("error", error=code, detail=detail, idempotency_key=key, http_status=resp.status, request_id=rid, line_id=line_id)
+        return _result("error", error=code, detail=explain(code, detail), idempotency_key=key, http_status=resp.status,
+                       request_id=rid, line_id=line_id)
 
     record = _data(resp.body)
     message_id = record.get("id") if isinstance(record, dict) and isinstance(record.get("id"), str) else None

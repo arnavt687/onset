@@ -220,6 +220,7 @@ Until `ONSET_LIVE_ACTIONS=1`, every action is a dry run: logged and shown on the
 | Every sentence step is "unclear" | No ElevenLabs key, or Scribe rejected it | `scribe key` and `elevenlabs key` rows |
 | `chert dev` says the line is in use | Another `chert dev` session holds the line | `chert line_free` row; wait, or ask its owner to stop (`tools/stop.sh` on their machine) |
 | The caregiver gets nothing | Dry run, no caregiver phone, or they never texted `join <code>` | `safety gate` and `caregiver phone` rows; [Going live](#going-live) |
+| The text is refused with `recipient_not_verified` | That phone has not joined the line (no "Verified" reply came back) | `tools/chert_join.py` shows the phrase in force, the number to text and what to check on the iPhone ([chert-messaging.md](chert-messaging.md)) |
 | The caregiver's link only watches | No caregiver page | Host `web/caregiver/`, set `ONSET_CAREGIVER_PAGE` |
 | The picture is zoomed in and the captions are cut off at the sides | The line's `video_framing` is `fill` and Onset is sending a wide picture | `git pull`; remove `ONSET_FRAME=landscape`; `video framing` row ([video-framing.md](video-framing.md)) |
 | The video lags or stutters | The picture is too big for this computer (`video fell behind` in the agent log) | Remove `OUT_WIDTH`/`OUT_HEIGHT` from `.env.local` to use 540x960 |

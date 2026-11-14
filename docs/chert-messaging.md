@@ -4,8 +4,8 @@ Piece 6 (issue #7). Code: [`onset/chert_api.py`](../onset/chert_api.py), `send_i
 Sources, read on 2026-11-13: Chert's agent guide <https://app.trychert.com/skills.md>
 (sections "HTTP API", "Limits on Shared", "Rules"), the CLI's bundled docs
 (`@trychert/facetime@0.1.0-beta.20`: `README.md`, `docs/CLI_ONBOARDING.md`), and
-<https://docs.trychert.com>. Nothing on this page has been tried against the real API yet:
-no project API key exists, and no real message may be sent without the user's approval.
+<https://docs.trychert.com>. The section on refusals below was checked against the real API on 14 Nov 2026;
+the rest is from the documents. No real message may be sent without the user's approval.
 
 ## Bottom line
 
@@ -18,6 +18,51 @@ quiet since cannot be texted on the trial.
 So Onset must never depend on the text. The spoken "call 911 now" instruction is the
 safety action; the caregiver text is extra, and a failed or impossible text must be told to
 the person ("I could not text your caregiver, please call them too").
+
+## When the text is refused: `recipient_not_verified` (issue #29)
+
+Checked against the real API on 14 Nov 2026 (a trial project, an owner's CLI sign-in):
+
+- **`recipient_not_verified` means that phone has not joined this project's line.** It is not a
+  code for "the trial may not text first": Chert has separate codes for the plan
+  (`shared_entitlement_expired`, `shared_quota_exceeded`, `credit_exhausted`), and its own CLI
+  explains this one as "text the code to verify your phone".
+- **Chert confirms a join with a "Verified" reply in under ten seconds.** No reply means the join
+  did not register; waiting does not help.
+- **Nobody can list the phones that have joined.** There is no such endpoint for a project key
+  or for the owner's sign-in, and the console does not show it. The only test is a send.
+- **The owner's CLI sign-in can read what makes a join fail silently**: the phrase now in force
+  and when it last changed (an old code is ignored without a reply), whether joining is on, the
+  number the phrase must be texted to, and the plan. A project key is refused
+  (`join_code_member_required`).
+- **A trial line can be released** (after 3 hours with no agent connected, 15 minutes when lines
+  are busy). `chert onboard` gets a line again and **its number may change**: people who joined
+  must text the new number.
+
+```bash
+tools/chert_join.py                                        # plan, trial line, join code, number to text
+tools/chert_join.py --typed "join ABC234" --texted-to +15551230000    # was that the right phrase and number?
+tools/chert_join.py --send-test --yes                      # one real test text: the answer says whether the phone has joined
+```
+
+Why a join does not register, most likely first:
+
+1. **The text came from an e-mail address.** On the iPhone, Settings > Messages > Send & Receive >
+   "Start New Conversations From" must be the phone number. A blue bubble sent from an Apple ID
+   e-mail is still iMessage, but Chert sees an e-mail, not the phone.
+2. **An old code.** The code was rotated after the QR was shown or copied.
+3. **The wrong number**: the line's number changed after a trial release, or the text went into an
+   old thread.
+4. **Joining is switched off**, or the trial has ended.
+5. **The phone already belongs to another project on the same shared line**
+   (`shared_recipient_conflict`).
+
+To tell "this phone has not joined" from "this plan cannot text anyone", send the test to the
+**owner's own phone** (verified when the account was set up): `tools/chert_join.py --send-test
+--yes --to +1...`. If that arrives, the plan can text and the caregiver's phone is the problem.
+
+The text is only a way to deliver the join link. When it is refused, the dashboard still has the
+link (the caregiver button), and it can be handed over any other way.
 
 ## Who can be texted
 

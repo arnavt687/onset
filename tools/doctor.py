@@ -762,6 +762,14 @@ def check_caregiver_page(env: Mapping[str, str], http: HttpGet = urllib_get) -> 
     return Check(PASS, "caregiver page", "ONSET_CAREGIVER_PAGE answers 200")
 
 
+def check_caregiver_text(env: Mapping[str, str], http: HttpGet = urllib_get,
+                         session: Callable[[Mapping[str, str]], tuple[str, str] | None] | None = None) -> Check:
+    """With real actions on: is joining switched on, is the trial alive (tools/chert_join.py, issue #29)?"""
+    from tools import chert_join
+
+    return chert_join.summary(chert_join.inspect(env, http, session or cli_session), env)
+
+
 def check_port(port: int, host: str = "127.0.0.1") -> Check:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -809,6 +817,8 @@ def run_checks(args: argparse.Namespace, env: dict[str, str], root: Path = ROOT)
         net["livekit reachable"] = pool.submit(_guard, lambda: check_livekit(env), "livekit reachable")
         net["elevenlabs key"] = pool.submit(_guard, lambda: check_elevenlabs(env), "elevenlabs key")
         net["caregiver page"] = pool.submit(_guard, lambda: check_caregiver_page(env), "caregiver page")
+        if (env.get("ONSET_LIVE_ACTIONS") or "").strip() == "1":  # real texts: can the caregiver be texted at all?
+            net["caregiver text"] = pool.submit(_guard, lambda: check_caregiver_text(env), "caregiver text")
 
     out += _guard(lambda: check_models(models_dir(env, root)), "mediapipe models")
 
