@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1220 780" width="1220" height="780" role="img" aria-labelledby="title desc">
+  <title id="title">Onset architecture</title>
+  <desc id="desc">FaceTime call reaches the Onset agent through Chert's Mac bridge and LiveKit Cloud. The agent runs three measurements (smile with MediaPipe Face Landmarker, arms with MediaPipe Pose Landmarker, sentence with ElevenLabs Scribe). Deterministic rules compare them with the person's own baseline and make a decision: no change detected, change, or unclear. Change or unclear leads to a call 911 now instruction and a caregiver iMessage via Chert. A laptop dashboard shows the live numbers. No LLM in the decision path.</desc>
+
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7B8597"/>
+    </marker>
+    <marker id="ahs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M10,0 L0,5 L10,10 z" fill="#7B8597"/>
+    </marker>
+  </defs>
+
+  <!-- Boundary: no LLM in the decision path -->
+  <rect x="15" y="190" width="1170" height="434" rx="18" fill="none" stroke="#7B8597" stroke-width="2" stroke-dasharray="10 8"/>
+  <rect x="30" y="175" width="300" height="32" rx="16" fill="#3B4A6B"/>
+  <text x="180" y="197" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">No LLM in the decision path</text>
+
+  <!-- Arrows (drawn first so boxes sit on top) -->
+  <g stroke="#7B8597" stroke-width="3" fill="none">
+    <!-- call path, both directions -->
+    <line x1="276" y1="85" x2="324" y2="85" marker-start="url(#ahs)" marker-end="url(#ah)"/>
+    <line x1="576" y1="85" x2="624" y2="85" marker-start="url(#ahs)" marker-end="url(#ah)"/>
+    <line x1="876" y1="85" x2="924" y2="85" marker-start="url(#ahs)" marker-end="url(#ah)"/>
+    <!-- agent to the three measurements -->
+    <polyline points="1050,130 1050,165 450,165"/>
+    <line x1="450" y1="165" x2="450" y2="234" marker-end="url(#ah)"/>
+    <line x1="750" y1="165" x2="750" y2="234" marker-end="url(#ah)"/>
+    <line x1="1050" y1="165" x2="1050" y2="234" marker-end="url(#ah)"/>
+    <!-- measurements to rules -->
+    <line x1="450" y1="340" x2="450" y2="384" marker-end="url(#ah)"/>
+    <line x1="750" y1="340" x2="750" y2="384" marker-end="url(#ah)"/>
+    <line x1="1050" y1="340" x2="1050" y2="384" marker-end="url(#ah)"/>
+    <!-- baseline to rules -->
+    <line x1="270" y1="440" x2="324" y2="440" marker-end="url(#ah)"/>
+    <!-- rules to decision -->
+    <line x1="750" y1="490" x2="750" y2="514" marker-end="url(#ah)"/>
+    <!-- decision to outputs -->
+    <line x1="450" y1="606" x2="450" y2="654" marker-end="url(#ah)"/>
+    <line x1="750" y1="606" x2="750" y2="654" marker-end="url(#ah)"/>
+    <line x1="1050" y1="606" x2="1050" y2="654" marker-end="url(#ah)"/>
+    <!-- agent live numbers to dashboard (dashed) -->
+    <polyline points="1170,85 1202,85 1202,710 1176,710" stroke-dasharray="7 6" stroke-width="2.5" marker-end="url(#ah)"/>
+  </g>
+
+  <g font-family="Helvetica, Arial, sans-serif" text-anchor="middle">
+    <!-- Row 1: the call -->
+    <rect x="30" y="40" width="240" height="90" rx="12" fill="#F5F7FB" stroke="#3B4A6B" stroke-width="2"/>
+    <text x="150" y="76" font-size="18" font-weight="700" fill="#16202F">Caller's iPhone</text>
+    <text x="150" y="100" font-size="14" fill="#2B3647">FaceTime video call</text>
+
+    <rect x="330" y="40" width="240" height="90" rx="12" fill="#F5F7FB" stroke="#3B4A6B" stroke-width="2"/>
+    <text x="450" y="72" font-size="18" font-weight="700" fill="#16202F">Chert</text>
+    <text x="450" y="96" font-size="14" fill="#2B3647">Mac bridge:</text>
+    <text x="450" y="115" font-size="14" fill="#2B3647">FaceTime ↔ LiveKit</text>
+
+    <rect x="630" y="40" width="240" height="90" rx="12" fill="#F5F7FB" stroke="#3B4A6B" stroke-width="2"/>
+    <text x="750" y="76" font-size="18" font-weight="700" fill="#16202F">LiveKit Cloud</text>
+    <text x="750" y="100" font-size="14" fill="#2B3647">room: audio + video</text>
+
+    <rect x="930" y="40" width="240" height="90" rx="12" fill="#F5F7FB" stroke="#3B4A6B" stroke-width="2"/>
+    <text x="1050" y="70" font-size="18" font-weight="700" fill="#16202F">Onset agent</text>
+    <text x="1050" y="94" font-size="14" fill="#2B3647">Python, livekit-agents</text>
+    <text x="1050" y="113" font-size="14" fill="#2B3647">captions + ElevenLabs voice</text>
+
+    <!-- Row 2: measurements -->
+    <rect x="330" y="240" width="240" height="100" rx="12" fill="#E3EEFF" stroke="#2F5DA8" stroke-width="2"/>
+    <text x="450" y="272" font-size="18" font-weight="700" fill="#16202F">Smile</text>
+    <text x="450" y="297" font-size="14" fill="#2B3647">MediaPipe Face Landmarker</text>
+    <text x="450" y="317" font-size="14" fill="#2B3647">mouth-corner lift asymmetry</text>
+
+    <rect x="630" y="240" width="240" height="100" rx="12" fill="#E3EEFF" stroke="#2F5DA8" stroke-width="2"/>
+    <text x="750" y="272" font-size="18" font-weight="700" fill="#16202F">Arms up, 10 s</text>
+    <text x="750" y="297" font-size="14" fill="#2B3647">MediaPipe Pose Landmarker</text>
+    <text x="750" y="317" font-size="14" fill="#2B3647">wrist drift vs shoulders</text>
+
+    <rect x="930" y="240" width="240" height="100" rx="12" fill="#E3EEFF" stroke="#2F5DA8" stroke-width="2"/>
+    <text x="1050" y="272" font-size="18" font-weight="700" fill="#16202F">Repeat a sentence</text>
+    <text x="1050" y="297" font-size="14" fill="#2B3647">ElevenLabs Scribe</text>
+    <text x="1050" y="317" font-size="14" fill="#2B3647">word errors, rate, pauses</text>
+
+    <!-- Row 3: baseline and rules -->
+    <rect x="30" y="390" width="240" height="100" rx="12" fill="#F5F7FB" stroke="#3B4A6B" stroke-width="2"/>
+    <text x="150" y="422" font-size="18" font-weight="700" fill="#16202F">Baseline</text>
+    <text x="150" y="447" font-size="14" fill="#2B3647">own well-day check-ins</text>
+    <text x="150" y="467" font-size="14" fill="#2B3647">local file, owner-only</text>
+
+    <rect x="330" y="390" width="840" height="100" rx="12" fill="#FFF3D6" stroke="#9A6B00" stroke-width="2"/>
+    <text x="750" y="422" font-size="18" font-weight="700" fill="#16202F">Deterministic rules (onset/decide.py)</text>
+    <text x="750" y="447" font-size="14" fill="#2B3647">today vs the person's own baseline · all thresholds in one place</text>
+    <text x="750" y="467" font-size="14" fill="#2B3647">a value exactly at its threshold counts as a change</text>
+
+    <!-- Row 4: decision -->
+    <rect x="330" y="520" width="840" height="86" rx="12" fill="#FFF3D6" stroke="#9A6B00" stroke-width="2"/>
+    <text x="750" y="553" font-size="18" font-weight="700" fill="#16202F">Decision</text>
+    <text x="750" y="580" font-size="14" fill="#2B3647">no change detected  ·  change  ·  unclear (treated exactly like a change)</text>
+
+    <!-- Row 5: outputs -->
+    <rect x="330" y="660" width="240" height="100" rx="12" fill="#FDE4E2" stroke="#B42318" stroke-width="2"/>
+    <text x="450" y="692" font-size="18" font-weight="700" fill="#16202F">“Please call 911 now”</text>
+    <text x="450" y="717" font-size="14" fill="#2B3647">on any change or unclear</text>
+    <text x="450" y="737" font-size="14" fill="#2B3647">caption + voice to the caller</text>
+
+    <rect x="630" y="660" width="240" height="100" rx="12" fill="#FDE4E2" stroke="#B42318" stroke-width="2"/>
+    <text x="750" y="692" font-size="18" font-weight="700" fill="#16202F">Caregiver iMessage</text>
+    <text x="750" y="717" font-size="14" fill="#2B3647">summary via Chert API</text>
+    <text x="750" y="737" font-size="14" fill="#2B3647">extra, never the only action</text>
+
+    <rect x="930" y="660" width="240" height="100" rx="12" fill="#F5F7FB" stroke="#3B4A6B" stroke-width="2"/>
+    <text x="1050" y="692" font-size="18" font-weight="700" fill="#16202F">Laptop dashboard</text>
+    <text x="1050" y="717" font-size="14" fill="#2B3647">live numbers vs baseline</text>
+    <text x="1050" y="737" font-size="14" fill="#2B3647">decision + caregiver text</text>
+  </g>
+</svg>
