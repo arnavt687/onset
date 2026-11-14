@@ -87,6 +87,12 @@ async def synthesize(tts, text: str) -> bytes:
     return pcm
 
 
+def _voice_name(engine) -> str:
+    """'elevenlabs', 'google', 'openai'... for logs."""
+    parts = type(engine).__module__.split(".")
+    return parts[2] if len(parts) > 2 and parts[:2] == ["livekit", "plugins"] else type(engine).__name__
+
+
 def chime(seconds: float = 0.7) -> bytes:
     """A soft two-note chime (24 kHz PCM): the last resort when every voice fails, so the call
     still hears Onset within Chert's 10-second greeting deadline (the caption carries the words)."""
@@ -155,7 +161,7 @@ class Speaker:
             except Exception as e:  # noqa: BLE001 - includes the timeout
                 self._failures[id(engine)] = self._failures.get(id(engine), 0) + 1
                 log.warning("[onset] voice %s failed for %r (%s); trying the next one",
-                            type(engine).__module__.split(".")[-2] if "." in type(engine).__module__ else type(engine).__name__,
+                            _voice_name(engine),
                             text[:40], type(e).__name__)
         log.error("[onset] every voice failed for %r: playing a chime instead", text[:40])
         return chime()
