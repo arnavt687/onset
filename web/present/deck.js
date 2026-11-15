@@ -13,7 +13,7 @@ const params = new URLSearchParams(location.search);
 
 const SCENES = [
   { id: 'cover', steps: 1 }, { id: 'problem', steps: 2 }, { id: 'measure', steps: 3 }, { id: 'demo', steps: 2, star: true },
-  { id: 'escalate', steps: 1 }, { id: 'how', steps: 1 }, { id: 'close', steps: 1 },
+  { id: 'escalate', steps: 1 }, { id: 'how', steps: 2 }, { id: 'close', steps: 1 },
 ];
 SCENES.forEach(s => { s.el = $(`#s-${s.id}`); s.label = s.el.dataset.label; });
 const DEMO = SCENES.findIndex(s => s.id === 'demo');
@@ -138,6 +138,9 @@ async function findDashboard() {
   $$('.seg button').forEach(b => b.classList.toggle('sel', b.dataset.view === live.view));
 }
 function status(text, cls = '') { for (const id of ['#call-status', '#live-status']) { const el = $(id); el.textContent = text; el.className = `status ${cls}`; } }
+const CALL_STATUS = { placing: 'Asking Chert to FaceTime the caregiver…', queued: 'The caregiver call is waiting for the line…',
+  ringing: 'Onset is FaceTiming the caregiver', answered: 'The caregiver answered: Onset is telling them what it found',
+  ended: 'The caregiver call has ended', failed: 'The caregiver call did not go through', dry_run: 'Caregiver call: dry run, nobody was rung' };
 const OUTCOME = { no_change_detected: ['No change from the usual check-in', 'hot'], escalate: ['Change noticed: caregiver added, call 911', 'alert'], unclear: ['Unclear: caregiver added, call 911', 'alert'] };
 function listen() {
   const es = new EventSource('/events'); live.es = es;
@@ -150,7 +153,10 @@ function listen() {
     else if (ev.type === 'step' && ev.caption) status(`Onset: ${ev.caption}`, 'hot');
     else if (ev.type === 'decision') status(...(OUTCOME[ev.outcome] || [ev.outcome, '']));
     else if (ev.type === 'caregiver_join' && ev.status === 'joined') status('The caregiver joined the call', 'alert');
-    else if (ev.type === 'run_ended') setTimeout(() => status('Call ended. Ready for the next one.', ''), 6000);
+    else if (ev.type === 'caregiver_join' && ev.status === 'talking') status('The caregiver is talking to them', 'alert');
+    else if (ev.type === 'caregiver_call') status(CALL_STATUS[ev.status] || 'Caregiver call: ' + ev.status, ev.status === 'failed' ? '' : 'alert');
+    else if (ev.type === 'run_ended') setTimeout(() => { if (!live.callSeen) status('Call ended. Ready for the next one.', ''); }, 6000);
+    if (ev.type === 'caregiver_call') live.callSeen = !['ended', 'failed', 'dry_run'].includes(ev.status);
   };
 }
 async function lineNumber() {

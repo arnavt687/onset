@@ -304,6 +304,9 @@ def test_presentation_scenes_and_live_demo_hooks():
     assert 'id="voice"' in html and "internet connection" in (root / "README.md").read_text(encoding="utf-8")
     # the microphone is picked on the page (AirPods), and an earbud press is a clicker
     assert 'id="voice-mic"' in html and "getUserMedia" in deck and "setActionHandler" in deck and "nexttrack" in deck
+    # what we sent back to Chert is a second step of "Under the hood", so the demo stays in the middle
+    assert "We hit Chert's limits." in html and "docs/chert-feedback.md" in html and "id: 'how', steps: 2" in deck
+    assert "caregiver_call" in deck
     for gone in ("never diagnoses", "No LLM", "synthetic", "dry run"):  # wording the team dropped
         assert gone.lower() not in html.lower(), gone
 

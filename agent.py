@@ -49,7 +49,7 @@ REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))  # tools.record, when run from another directory
 load_dotenv(REPO / ".env.local")
 
-from onset import caregiver, overlay, patients, script, worker  # noqa: E402
+from onset import brief, caregiver, overlay, patients, script, worker  # noqa: E402
 from onset.events import EventSink  # noqa: E402
 from onset.flow import CheckFlow  # noqa: E402
 from onset.voice import Speaker  # noqa: E402
@@ -432,10 +432,44 @@ class Escalation:
                 flow.caregiver_update("invited", "join link: " + (
                     "caregiver page" if invite.kind == "page" else "LiveKit Meet, watch only"))
             self.sink.private_file("caregiver_link.txt", invite.link)  # the dashboard's demo button
+        self._start_caregiver_call(decision)
         return await caregiver.notify_caregiver(
             sink=flow if flow is not None else self.sink, summary=summary,
             caregiver_phone=self.patient.caregiver.phone, caregiver_name=self.patient.caregiver.name,
             patient_name=self.patient.name, invite=invite, talk=self.cfg.talk)
+
+    def _start_caregiver_call(self, decision) -> None:
+        """ONSET_CAREGIVER_CALL=after: once this call has ended, Onset FaceTimes the caregiver and
+        tells them what it found. Chert carries one call per line and cannot add a second person,
+        so it has to be a second call. A separate process places it (tools/caregiver_call.py):
+        this job ends with the caller's call, and that process has to outlive it. It goes
+        through the same safety gate as every other action (a dry run unless ONSET_LIVE_ACTIONS=1)."""
+        phone = self.patient.caregiver.phone
+        if self.cfg.call != "after" or not phone:
+            return
+        try:
+            import subprocess
+            from datetime import datetime
+
+            info = brief.BriefInfo(patient=caregiver.first_name(self.patient.name),
+                                   caregiver=caregiver.first_name(self.patient.caregiver.name),
+                                   outcome=decision.outcome.value, reasons=tuple(decision.reasons or ())[:brief.MAX_REASONS],
+                                   when=datetime.now().strftime("%a %-d %b at %-I:%M %p"), run_id=self.run_id)
+            path = self.sink.private_file("caregiver_call.json", json.dumps({**info.to_meta(), "to": phone}))
+            if path is None:
+                raise OSError("could not write the briefing file")
+            logs = REPO / "runs" / "demo-logs"
+            logs.mkdir(parents=True, exist_ok=True)
+            with open(logs / f"caregiver-call-{self.run_id[:36]}.log", "ab") as out:
+                subprocess.Popen([sys.executable, str(REPO / "tools" / "caregiver_call.py"), "--brief", str(path),
+                                  "--wait-room", self.ctx.room.name, "--agent-name", AGENT_NAME],
+                                 cwd=str(REPO), stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                                 start_new_session=True)
+            log.info("[onset] the caregiver will be FaceTimed when this call ends")
+            if self.flow is not None:
+                self.flow.caregiver_note("Onset will FaceTime the caregiver when this call ends")
+        except Exception as e:  # noqa: BLE001 - the link and the text still go out
+            log.warning("[onset] could not start the caregiver call: %s", type(e).__name__)
 
     async def _start_relay(self, side_room: str) -> None:
         from onset.relay import SideRoomRelay
@@ -496,10 +530,103 @@ class Escalation:
             await self.relay.aclose()
 
 
+async def brief_entry(ctx: JobContext, meta: dict) -> None:
+    """The caregiver briefing call (onset/brief.py): no check, no camera reading. Onset waits,
+    silent, for the caregiver to answer, then tells them what the check-in found and what to do.
+
+    Chert's contract for a call Onset places (docs/outbound.md): be in the room first with one
+    audio track and the camera track, stay silent until `chert_bridge_ready`, then speak."""
+    info = brief.BriefInfo.from_meta(meta)
+    log.info("[onset] caregiver briefing call for run %s (%s)", info.run_id or "?", info.outcome)
+    await ctx.connect(auto_subscribe=AutoSubscribe.SUBSCRIBE_NONE)
+
+    vsource = rtc.VideoSource(OUT_W, OUT_H)
+    vtrack = rtc.LocalVideoTrack.create_video_track("onset-video", vsource)
+    state = {"caption": brief.WAITING.caption}
+    t0 = time.monotonic()
+    send(vsource, brief.render(info, OUT_W, OUT_H, state["caption"], 0.0))
+    await ctx.room.local_participant.publish_track(vtrack, rtc.TrackPublishOptions(
+        source=rtc.TrackSource.SOURCE_CAMERA, simulcast=SIMULCAST,
+        video_encoding=rtc.VideoEncoding(max_bitrate=VIDEO_BITRATE, max_framerate=SEND_FPS)))
+    from onset import voice
+
+    asource = rtc.AudioSource(voice.RATE, 1)
+    atrack = rtc.LocalAudioTrack.create_audio_track("onset-voice", asource)
+    await ctx.room.local_participant.publish_track(atrack, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE))
+
+    gone = asyncio.Event()
+
+    async def video_loop() -> None:
+        while not gone.is_set():
+            try:
+                img = await asyncio.to_thread(brief.render, info, OUT_W, OUT_H, state["caption"], time.monotonic() - t0)
+                send(vsource, img)
+            except Exception:  # noqa: BLE001 - keep the picture alive
+                log.exception("[onset] briefing frame failed")
+            await asyncio.sleep(1 / 8)
+
+    async def play(pcm: bytes) -> None:
+        samples = np.frombuffer(pcm, dtype=np.int16)
+        step = voice.RATE // 50  # 20 ms frames; capture_frame paces itself
+        for i in range(0, len(samples), step):
+            if gone.is_set():
+                return
+            chunk = samples[i:i + step]
+            await asource.capture_frame(rtc.AudioFrame(chunk.tobytes(), voice.RATE, 1, len(chunk)))
+        await asource.wait_for_playout()
+
+    video = asyncio.create_task(video_loop())
+    voices = make_tts_chain()
+    speaker = Speaker(voices[0], fallbacks=voices[1:])
+    said = [*brief.lines(info), brief.action_line(info), brief.GOODBYE]
+    # Synthesize while the phone rings, so the first words follow bridge_ready at once.
+    audio = asyncio.gather(*(speaker.synth(ln.say, budget_s=12.0) for ln in said), return_exceptions=True)
+
+    ready = asyncio.Event()
+
+    def check_ready(*_a) -> None:
+        if bridge_ready(ctx.room.metadata):
+            ready.set()
+
+    ctx.room.on("room_metadata_changed", check_ready)
+    ctx.room.on("participant_disconnected", lambda p: gone.set() if is_caller(p) else None)
+    check_ready()
+    try:
+        try:
+            await asyncio.wait_for(ready.wait(), brief.RING_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            log.info("[onset] the caregiver did not answer within %.0f s", brief.RING_TIMEOUT_S)
+            return
+        log.info("[onset] the caregiver answered: briefing them")
+        clips = await audio
+        for ln, pcm in zip(said, clips):
+            if gone.is_set():
+                break
+            state["caption"] = ln.caption
+            if isinstance(pcm, (bytes, bytearray)) and pcm:
+                await play(bytes(pcm))
+            else:
+                await asyncio.sleep(2.5)  # no voice for this line: the caption carries it
+            await asyncio.sleep(0.45)
+        log.info("[onset] briefing %s", "cut short: the caregiver hung up" if gone.is_set() else "finished")
+        await asyncio.sleep(1.5)
+    finally:
+        gone.set()
+        video.cancel()
+        if not audio.done():
+            audio.cancel()
+        await asyncio.gather(video, return_exceptions=True)
+        await speaker.aclose()
+        ctx.shutdown(reason="briefing finished")
+
+
 @server.rtc_session(agent_name=AGENT_NAME)
 async def entry(ctx: JobContext) -> None:
     meta = json.loads(ctx.job.metadata or "{}") if ctx.job.metadata else {}
-    log.info("[onset] job for room %s, metadata %s", ctx.room.name, meta)
+    log.info("[onset] job for room %s, metadata %s", ctx.room.name, {k: v for k, v in meta.items() if k != "reasons"})
+    if brief.is_brief(meta):
+        await brief_entry(ctx, meta)
+        return
     # Join at once (Chert keeps a warm room ready before any call); subscribe to
     # audio AND video so the caller's camera and microphone reach us.
     await ctx.connect(auto_subscribe=AutoSubscribe.SUBSCRIBE_ALL)

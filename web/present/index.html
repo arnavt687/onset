@@ -118,10 +118,31 @@
 
     <!-- 6 ─ how it works, and the trend -->
     <section class="scene" id="s-how" data-label="Under the hood"
-      data-notes="One line each: FaceTime in through Chert, LiveKit carries the media, the agent measures with MediaPipe and transcribes with Scribe, fixed rules compare with the baseline. Every check-in is kept, so a slow slide over weeks is flagged even when no single day crosses the line.">
+      data-notes="One line each: FaceTime in through Chert, LiveKit carries the media, the agent measures with MediaPipe and transcribes with Scribe, fixed rules compare with the baseline. Every check-in is kept, so a slow slide over weeks is flagged even when no single day crosses the line. Press once more for what we sent back to Chert: we hit five limits, built around each one, and wrote each up with evidence and a proposed change.">
       <p class="eyebrow r" style="--i:0">Under the hood</p>
-      <h2 class="r" style="--i:1">Every check-in is kept.<br>The trend matters too.</h2>
-      <div class="pipe r" style="--i:2">
+      <h2 class="r" style="--i:1" data-only="0">Every check-in is kept.<br>The trend matters too.</h2>
+      <div class="upstream" data-only="1">
+        <h2>We hit Chert's limits.<br>We built around them.</h2>
+        <div class="finds">
+          <div class="find" data-tilt>
+            <span>Limit 1</span><b>No second person on a FaceTime call</b>
+            <p class="ours"><i>Built</i>The caregiver joins through Onset's own voice and picture. Then Onset FaceTimes them.</p>
+            <p class="ask"><i>Proposed</i>Add a participant to a live call.</p>
+          </div>
+          <div class="find" data-tilt>
+            <span>Limit 2</span><b>Nobody can see which phones joined</b>
+            <p class="ours"><i>Built</i>A tool that reads what the owner can see and says why a join failed.</p>
+            <p class="ask"><i>Proposed</i>List joined phones. Reply to a bad join.</p>
+          </div>
+          <div class="find" data-tilt>
+            <span>Limits 3 to 5</span><b>Silent defaults</b>
+            <p class="ours"><i>Built</i>Upright video with a safe area, after a line setting cropped our captions.</p>
+            <p class="ask"><i>Proposed</i>Warn in <code>chert dev</code>. Make it settable.</p>
+          </div>
+        </div>
+        <p class="source">Five findings for the Chert team, each with evidence and a proposed change: docs/chert-feedback.md</p>
+      </div>
+      <div class="pipe r" style="--i:2" data-only="0">
         <div class="node" data-tilt><b>FaceTime</b><span>no app</span></div>
         <div class="node" data-tilt><b>Chert</b><span>the line</span></div>
         <div class="node" data-tilt><b>LiveKit</b><span>real-time media</span></div>
@@ -129,11 +150,11 @@
         <div class="node" data-tilt><b>Fixed rules</b><span>you vs your baseline</span></div>
         <div class="node" data-tilt><b>Caregiver</b><span>text + join link</span></div>
       </div>
-      <ul class="legend r" style="--i:3">
+      <ul class="legend r" style="--i:3" data-only="0">
         <li class="c1">Smile symmetry</li><li class="c2">Arm drift</li><li class="c3">Speech pace</li>
         <li class="flag">Flagged: a slow decline over three weeks</li>
       </ul>
-      <p class="source r" style="--i:4">Built with LiveKit · Chert · ElevenLabs · Gemini · MediaPipe</p>
+      <p class="source r" style="--i:4" data-only="0">Built with LiveKit · Chert · ElevenLabs · Gemini · MediaPipe</p>
     </section>
 
     <!-- 7 ─ close -->

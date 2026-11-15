@@ -182,6 +182,21 @@ input[type=range].touched::-webkit-slider-thumb{animation:none}
 .legend li::before{content:"";width:14px;height:14px;border-radius:50%;background:var(--c,var(--glow));box-shadow:0 0 14px var(--c,var(--glow))}
 .legend .c2{--c:var(--right)} .legend .c3{--c:#B9EFE6} .legend .flag{--c:var(--alert);color:var(--text)}
 
+/* what we sent back to Chert (the second step of "Under the hood") */
+.upstream h2{font-size:96px}
+.finds{display:flex;gap:22px;margin-top:44px;width:1500px}
+.find{flex:1;padding:26px 28px 24px;border:1px solid var(--line-2);border-radius:26px;background:var(--panel);backdrop-filter:blur(14px)}
+.find > span{font-family:var(--f-mono);font-size:17px;letter-spacing:.16em;text-transform:uppercase;color:var(--alert)}
+.find > b{display:block;margin:10px 0 18px;font-family:var(--f-display);font-size:36px;line-height:1.08;letter-spacing:-.02em;min-height:78px}
+.find p{margin:0;padding:14px 0 0;border-top:1px solid var(--line);font-size:23px;line-height:1.32;color:var(--muted)}
+.find p + p{margin-top:14px}
+.find p i{display:block;font-style:normal;font-family:var(--f-mono);font-size:15px;letter-spacing:.16em;text-transform:uppercase;margin-bottom:4px}
+.find .ours i{color:var(--glow)} .find .ours{color:var(--text)}
+.find .ask i{color:var(--right)}
+.find code{font-family:var(--f-mono);font-size:.9em;color:var(--glow)}
+.upstream .source{margin-top:26px;font-size:18px}
+body[data-scene="how"][data-step="1"] #vignette{background:rgba(4,8,14,.72)}
+
 /* ───────── close */
 .tryrow{display:flex;align-items:center;gap:52px;margin-top:52px}
 .qr{display:block;width:300px;height:300px;padding:22px;border-radius:30px;background:#F4FBFA;box-shadow:0 0 110px -20px rgba(103,224,210,.75)}

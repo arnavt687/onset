@@ -190,6 +190,10 @@ REFUSALS = {
     "shared_entitlement_expired": "this project's trial or plan has ended, so Chert has paused texting until it is renewed",
     "credit_exhausted": "this project has no trial credit left",
     "cli_scope_denied": "a Chert CLI sign-in cannot send messages: set CHERT_API_KEY to a project key (ftk_...)",
+    "outbound_disabled": "outbound calls are not switched on for this line or plan: ask Chert to enable them",
+    "line_busy": "the line is on another call",
+    "shared_line_busy": "the line is on another call",
+    "shared_minutes_limit": "the project has no FaceTime minutes left today",
 }
 
 
@@ -665,8 +669,54 @@ async def _post_call(cfg: ChertConfig, transport: Transport, payload: dict, key:
                        line_id=payload["line_id"])
     code, msg = _api_error(resp)
     log.warning("chert: outbound call refused: %s (HTTP %s, request %s)", code, resp.status, rid)
-    return _result("error", error=code, detail=msg or f"Chert answered HTTP {resp.status}", idempotency_key=key,
-                   http_status=resp.status, request_id=rid)
+    return _result("error", error=code, detail=explain(code, msg or f"Chert answered HTTP {resp.status}"),
+                   idempotency_key=key, http_status=resp.status, request_id=rid)
+
+
+async def get_call_queue(queue_id: str, *, config: ChertConfig | None = None, transport: Transport | None = None) -> dict:
+    """A queued outbound call's place in line (`when_busy="queue"`): `queue_state` is Chert's word
+    for it, `ready` is True when the same request should be sent again with the same key."""
+    try:
+        if not queue_id or not re.fullmatch(r"[A-Za-z0-9_-]{6,80}", str(queue_id)):
+            return _result("error", error="invalid_request", detail="queue_id is missing or malformed")
+        cfg = config or load_config()
+        transport = transport or _aiohttp_transport
+        resp = await transport("GET", _url(f"/calls/queue/{quote(str(queue_id))}"), _headers(cfg), None)
+        if resp.status != 200:
+            code, msg = _api_error(resp)
+            return _result("error", error=code, detail=explain(code, msg), http_status=resp.status)
+        data = _data(resp.body) if isinstance(_data(resp.body), dict) else {}
+        state = str(data.get("state") or data.get("status") or "")
+        return _result("ok", accepted=True, queue_state=state, ready=state == "ready",
+                       terminal=state in ("expired", "cancelled", "canceled", "failed"), position=data.get("position"))
+    except ConfigError as e:
+        return _result("error", error=e.code, detail=e.detail)
+    except TransportError as e:
+        return _result("unknown", error="network_error", detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        log.exception("get_call_queue failed")
+        return _result("error", error="internal_error", detail=type(e).__name__)
+
+
+async def end_call(call_id: str, *, config: ChertConfig | None = None, transport: Transport | None = None) -> dict:
+    """Hang up a call Onset placed: `POST /api/v1/calls/{id}/end` (its own idempotency key, body {})."""
+    try:
+        if not _UUID.match(call_id or ""):
+            return _result("error", error="invalid_request", detail="call_id must be a UUID")
+        cfg = config or load_config()
+        transport = transport or _aiohttp_transport
+        resp = await transport("POST", _url(f"/calls/{quote(call_id)}/end"), _headers(cfg, new_idempotency_key("end")), {})
+        if resp.status in (200, 202, 204):
+            return _result("ending", accepted=True, detail="Chert is ending the call", call_id=call_id)
+        code, msg = _api_error(resp)
+        return _result("error", error=code, detail=msg or f"Chert answered HTTP {resp.status}", http_status=resp.status)
+    except ConfigError as e:
+        return _result("error", error=e.code, detail=e.detail)
+    except TransportError as e:
+        return _result("unknown", error="network_error", detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        log.exception("end_call failed")
+        return _result("error", error="internal_error", detail=type(e).__name__)
 
 
 async def get_call(call_id: str, *, config: ChertConfig | None = None, transport: Transport | None = None) -> dict:

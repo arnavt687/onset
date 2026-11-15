@@ -22,6 +22,14 @@ AirPods and report what the panel's "Heard" and "Listening on" lines say. Known 
 a microphone or a clicker, not both. The orchestrator's session keeps a dashboard server on port 8765 for the
 user to view the presentation: stop it before `tools/demo.sh`.
 
+**14 Nov, night:** #29 (caregiver text refused): `tools/chert_join.py` + explained refusals; cause on Satvik's line
+still unknown. #30 (caregiver joins, cannot talk): fixed (short link, talk key handed over in the call, one tap);
+tested with the real page in a browser, not on an iPhone. New: `ONSET_CAREGIVER_CALL=after` makes Onset FaceTime the
+caregiver after the patient's call (`tools/caregiver_call.py`, `onset/brief.py`); agent side tested with a fake
+bridge, NOT confirmed against Chert (needs Satvik's key; trial outbound unknown). Chert's code is not public: no PR
+possible; `docs/chert-feedback.md` is the write-up (not sent: sending is the user's call) and the presentation has
+a slide for it (scene 6, step 2). Waiting on Satvik: the commands in the #29 and #30 comments.
+
 ## Sessions the resume job watches
 
 | Session id | Role | Watch? |

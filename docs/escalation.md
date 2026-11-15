@@ -110,6 +110,47 @@ hours of the caregiver's last text; see [chert-messaging.md](chert-messaging.md)
   - whether caller capture (`facetime-remote-video`) is visible to a non-agent participant;
   - that the relayed voice sounds right on the iPhone.
 
+## Onset FaceTimes the caregiver (`ONSET_CAREGIVER_CALL=after`)
+
+Chert cannot put the caregiver into the patient's FaceTime call, so with this switch on Onset
+makes a **second call**: once the patient's call has ended, the caregiver's phone rings with a
+FaceTime call from the Onset line, and Onset tells them what the check-in found and what to do
+("Please call Alex now. If you cannot reach them, call 911"), out loud and on a card on screen.
+It reports what it measured; it never names a condition. The link and the text still go out.
+
+```
+escalation ── agent.py writes runs/live/caregiver_call.json and starts tools/caregiver_call.py
+                 │   (a separate process: the agent's job ends with the patient's call)
+                 ├─ waits until the patient's call has left its LiveKit room
+                 ├─ makes room onset-brief-<id>, sends the Onset agent into it in briefing mode (silent)
+                 ├─ POST /api/v1/calls  (outbound, customer_managed, when_busy: queue)
+                 ├─ on bridge_ready: writes it to the room; the agent starts talking
+                 └─ when the agent has finished or the caregiver hangs up: ends the call, deletes the room
+```
+
+It is off by default and goes through the safety gate: a dry run unless `ONSET_LIVE_ACTIONS=1`
+(and `call` is not in `ONSET_LIVE_ACTIONS_DENY`). It needs `CHERT_API_KEY`, `CHERT_PROJECT_ID`
+and a caregiver phone that has **joined the line** (`tools/chert_join.py`).
+
+**Not yet confirmed against Chert.** The agent's side is tested with a fake bridge
+(`tools/fake_brief_private.sh`: the agent joins silent, speaks on bridge_ready, and the picture
+and voice arrive). Whether Chert places the call is unknown: its documents do not say whether a
+free trial may place outbound calls, and the destination must be a joined phone. One command
+answers it, with a phone that is known to be verified (the owner's own):
+
+```bash
+tools/caregiver_call.py --to +1<your own number> --patient Alex --caregiver Sam \
+    --reason "The left arm dropped while it was held up" --yes
+```
+
+It rings once and prints what Chert answered, with the request id if it refused.
+
+| Chert answers | Meaning |
+|---|---|
+| the phone rings | Outbound calls work on this plan. Set `ONSET_CAREGIVER_CALL=after` and `ONSET_LIVE_ACTIONS=1` |
+| `recipient_not_verified` | That phone has not joined the line (`tools/chert_join.py`) |
+| `outbound_disabled` or a plan error | Outbound calls are not on for this line or plan: ask Chert |
+
 ## Testing the page itself
 
 `tools/fake_escalation_private.sh` plays the caller and the caregiver and checks that the caller

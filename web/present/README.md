@@ -20,7 +20,7 @@ Both serve it at http://localhost:8765/present. Open it in Chrome and press `F` 
 | 3 | The idea (3 steps) | Smile, arms, speech: drag the slider (or `A`) to act a change and watch it cross the limit |
 | 4 | **Live demo** (2 steps) | "Let's call it", then the live dashboard inside the presentation |
 | 5 | When it changes | The escalation plays itself; click a step to jump to it, `R` replays |
-| 6 | Under the hood | The pipeline and 90 days of trend lines, one flagged for a slow decline |
+| 6 | Under the hood (2 steps) | The pipeline and 90 days of trend lines, one flagged for a slow decline; then what we hit on Chert, what we built around it and what we proposed ([docs/chert-feedback.md](../../docs/chert-feedback.md)) |
 | 7 | Try it | QR code to the browser demo |
 
 ## The live demo scene

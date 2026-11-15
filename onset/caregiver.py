@@ -53,6 +53,9 @@ class EscalationConfig:
     talk: bool = True
     page: str = ""  # the caregiver page URL ("" -> LiveKit Meet, watch-only)
     ttl_s: int = 900
+    # "after": once the person's call has ended, Onset FaceTimes the caregiver and tells them what
+    # it found (onset/brief.py, tools/caregiver_call.py). "off" (default): the link and text only.
+    call: str = "off"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "EscalationConfig":
@@ -65,8 +68,12 @@ class EscalationConfig:
             ttl = int(env.get("ONSET_CAREGIVER_LINK_TTL_S") or 900)
         except ValueError:
             ttl = 900
+        call = (env.get("ONSET_CAREGIVER_CALL") or "off").strip().lower()
+        if call not in ("off", "after"):
+            log.warning("[onset] ONSET_CAREGIVER_CALL=%r is not off|after; using off", call)
+            call = "off"
         return cls(join=join, talk=(env.get("ONSET_CAREGIVER_TALK") or "1").strip() != "0",
-                   page=(env.get("ONSET_CAREGIVER_PAGE") or "").strip(), ttl_s=max(120, min(ttl, 7200)))
+                   page=(env.get("ONSET_CAREGIVER_PAGE") or "").strip(), ttl_s=max(120, min(ttl, 7200)), call=call)
 
 
 @dataclass(frozen=True)
