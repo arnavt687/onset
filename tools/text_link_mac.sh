@@ -43,22 +43,29 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$TO" ] || die "no recipient: set ONSET_CAREGIVER_PHONE in .env.local or pass --to"
 
-compose() {  # the newest run's caregiver summary, then the link
-  "$PY" -I - "$ROOT/runs" "$LINK" <<'PY'
-import glob, json, os, sys
-runs, link_path = sys.argv[1], sys.argv[2]
+compose() {  # THIS run's caregiver summary, then the link
+  # Only runs/live, the run the link belongs to: never a summary from an older run (that would
+  # tell the caregiver about the wrong check-in). The agent writes the summary just after the
+  # link, once Chert has answered its own attempt, so wait a few seconds for it; without it the
+  # link goes alone.
+  "$PY" -I - "$ROOT/runs/live/events.jsonl" "$LINK" <<'PY'
+import json, sys, time
+events, link_path = sys.argv[1], sys.argv[2]
 link = open(link_path).read().strip()
-summary = ""
-for p in sorted(glob.glob(os.path.join(runs, "*", "events.jsonl")), key=os.path.getmtime, reverse=True):
-    for line in open(p):
-        try:
-            e = json.loads(line)
-        except ValueError:
-            continue
-        if e.get("type") == "caregiver" and e.get("text"):
-            summary = e["text"]
-    if summary:
-        break
+summary, end = "", time.monotonic() + 8.0
+while not summary and time.monotonic() < end:
+    try:
+        for line in open(events, encoding="utf-8"):
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if e.get("type") == "caregiver" and e.get("text"):
+                summary = e["text"]
+    except OSError:
+        pass
+    if not summary:
+        time.sleep(0.5)
 print((summary + "\n\n" if summary else "") + "Join the call now to see and talk to them: " + link)
 PY
 }
@@ -89,7 +96,6 @@ live_ok() { [ "$(envval ONSET_LIVE_ACTIONS)" = 1 ] || die "ONSET_LIVE_ACTIONS is
 
 send_current() {
   [ -s "$LINK" ] || { say "no caregiver link yet ($LINK)"; return 1; }
-  sleep 1   # let the agent finish writing the run's caregiver event
   pbcopy < "$LINK" 2>/dev/null
   if send "$(compose)" >/dev/null 2>&1; then
     say "sent to ${TO:0:2}…${TO: -2} and copied the link to the clipboard"
