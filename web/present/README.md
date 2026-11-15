@@ -44,25 +44,50 @@ browser demo.
 
 ## Voice
 
-Press `V` (or click the microphone, top right) and the deck listens: say **"next slide"** and it
-moves. It stays on for next time; `?voice` in the address turns it on too.
+Press `V` (or click the microphone, top right) and the deck listens while you talk: say
+**"next"**, or **"okay, let's move on"** in the middle of a sentence, and it moves. It acts while
+you are still speaking, once per command. It stays on for next time; `?voice` in the address
+turns it on too.
 
-| Say | It does |
+| Say (alone, or inside a sentence) | It does |
 |---|---|
-| "next slide", "move on", "next please" | next step or scene |
-| "go back", "previous slide" | back |
-| "start the demo", "let's call it" | jumps to the live demo |
-| "open the live view", "open the browser demo" | the live dashboard, or the fallback |
-| "show the smile", "show the arms", "show the speech" | that check, from anywhere |
-| "show a change", "back to normal" | acts a change on the current check, or undoes it |
-| "play it again" | replays the escalation |
-| "first slide", "last slide", "voice off" | as they say |
+| "next", "next slide", "next one", "next please", "move on", "let's move on", "moving on", "go on", "carry on", "continue", "go forward", "forward", "advance", "keep going", "skip ahead" | next step or scene |
+| "back", "go back", "back one", "go back a slide", "previous", "previous slide", "back to the last slide", "let me back up" | back |
+| "go to slide two", "slide 3", "third slide", "go to the second slide", "go to the fourth one", "jump to four", "slide number five" | that scene (1 to 7; words or digits) |
+| "first slide", "go to the start", "back to the beginning", "start over", "title slide" | scene 1 |
+| "last slide", "final slide", "go to the end", "skip to the last one" | scene 7 |
+| "start the demo", "go to the demo", "let's do the demo", "let's call it", "demo time" | jumps to the live demo |
+| "open the live view", "show the live call", "go to the dashboard", "bring up the dashboard" | the live dashboard |
+| "open the browser demo", "try the browser demo", "use the backup demo" | the fallback |
+| "show the smile", "check the arms", "go to the speech", "let's try the arm check" | that check, from anywhere |
+| "show a change", "act a change", "simulate a change" / "back to normal", "undo that" | acts a change on the current check / undoes it |
+| "play it again", "replay", "one more time" | replays the escalation |
+| "stop listening", "voice off", "turn off the microphone" | voice off |
 
-Commands are whole phrases, so ordinary talking (a bare "next", "back" or "demo") does not move
-the deck. It uses the browser's speech recognition, so it needs **Chrome or Edge, the microphone
+**What it will not act on.** The pitch is full of these words, so the phrases look at the words
+around them (the rules and the full lists are in `voice.js`, the tests in
+`tests/test_present_voice.py`):
+
+- "next" is not a command after "the / our / what's" or before a noun or the rest of a sentence:
+  "the next step", "next to", "next week", "next is a study", "next, we measure the arms".
+  "Okay, next", "…the risky part, next" and "next, so here is the problem" are.
+- "move on", "go on", "go back" wait about half a second for the following word: "move on with
+  their lives", "go on to have another stroke", "go back home" are not commands.
+- "back", "previous", "forward", "continue", "advance" on their own need to be said on their
+  own: after a pause or a lead-in ("okay", "so", "sorry", "let's"), with nothing after. "Go back"
+  and "previous slide" work anywhere.
+- A slide number needs "slide" or a go-to in front ("slide three", "jump to three"); "on slide
+  three we showed…" and "go to one of these clinics" are left alone.
+- A bare "next", "move on" or "jump to four" at the very end of what you have said so far fires
+  after that half second, so a long pause straight after "Next…" in "Next… is a clinical
+  study" would move the deck. Say "the next step is" there, or do not pause.
+
+The panel behind the microphone button shows the words it **heard** and the **last command** it
+acted on. It uses the browser's speech recognition, so it needs **Chrome or Edge, the microphone
 and an internet connection**: the browser sends the microphone audio to its maker's speech
 service while voice is on. Without those, the keys and the clicker still work. During the call the
-microphone hears the room, so keep to the phrases above, or press `V` to switch it off.
+microphone hears the room and the agent's voice; the agent's lines are in the tests and do not
+move the deck, but press `V` to switch voice off if the room is noisy.
 
 ### Which microphone, and AirPods
 
@@ -121,5 +146,6 @@ or press a key once after opening the page to start it.
 ## Files
 
 `index.html` (the words), `style.css`, `deck.js` (scenes, keys, the checks, the live demo),
-`world.js` (the three.js scene), `qr-try.svg`. three.js 0.186.1 and the fonts come from
+`voice.js` (what a spoken phrase means and when to act on it; no page or microphone in it, so
+it is tested under Node), `world.js` (the three.js scene), `qr-try.svg`. three.js 0.186.1 and the fonts come from
 `../pitch/vendor`, with jsDelivr as the fallback for three.js. Without WebGL the slides still work.

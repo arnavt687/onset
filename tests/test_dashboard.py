@@ -276,7 +276,7 @@ def test_presentation_is_served_with_what_it_borrows(tmp_path, monkeypatch):
             page = await client.get("/present")
             text = await page.text()
             assert page.status == 200 and "Let's call it." in text and 'src="deck.js"' in text
-            for path in ("/web/present/deck.js", "/web/present/world.js", "/web/present/style.css", "/web/present/qr-try.svg",
+            for path in ("/web/present/deck.js", "/web/present/voice.js", "/web/present/world.js", "/web/present/style.css", "/web/present/qr-try.svg",
                          "/web/pitch/vendor/three/three.module.js", "/web/pitch/vendor/fonts/Inter.woff2",
                          "/web/try/index.html", "/web/brand/logo-glyph.svg"):
                 assert (await client.get(path)).status == 200, path

@@ -5,6 +5,7 @@
  * Opened any other way (a static server, GitHub Pages) it falls back to the browser demo.
  */
 import { loadThree, makeWorld } from './world.js';
+import { makeListener, matchCommand } from './voice.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -242,66 +243,69 @@ let touchX = null;
 stage.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: true });
 stage.addEventListener('touchend', e => { if (touchX == null) return; const dx = e.changedTouches[0].clientX - touchX; touchX = null; if (Math.abs(dx) > 70 && !e.target.closest('input,iframe,button,a')) (dx < 0 ? next : back)(); }, { passive: true });
 
-/* ───────── hands-free: say "next slide", or press an AirPod
+/* ───────── hands-free: say "next", or press an AirPod
    Voice is the browser's own speech recognition (Chrome, Edge). It needs a microphone and an
    internet connection: the browser sends the audio to its maker's speech service. Off until V.
    - The microphone is chosen here (AirPods, the laptop, a headset), not left to the browser's
      default, and a level meter and the words it heard show whether it is picking you up.
-   - Commands are whole phrases ("next slide", not "next"), so ordinary talking does not move
-     the deck; near-misses the recogniser is known for ("next slight") count.
+   - What counts as a command is in voice.js: phrases said alone or inside a sentence ("okay,
+     let's move on", "go to slide three"), acted on while you are still talking, once each.
+     Ordinary sentences ("the next step is a study") do not move the deck.
    - Earbud and keyboard media buttons are a clicker: next track = next, previous track = back. */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const voiceBtn = $('#voice'), voiceText = $('#voice-text'), voicePanel = $('#voice-panel');
-const VOICE_IDLE = 'Say “next slide”';
+const VOICE_IDLE = 'Say “next”';
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch { /* private window */ } } };
 const inScene = id => SCENES[si].id === id;
 const measureAt = step => show(SCENES.findIndex(s => s.id === 'measure'), step);
-const COMMANDS = [
-  [/\b(next|nex|necks|text) (slide|slides|slid|slight|side|sly|flight)\b|\b(next one|next please|move on|go forward|keep going|go next)\b/, 'Next', () => next()],
-  [/\b(previous|previews) (slide|slides|slid|side)\b|\b(go back|go black|goback|back one|one back|back a slide)\b/, 'Back', () => back()],
-  [/\b(first slide|start over|back to the (start|beginning))\b/, 'First slide', () => show(0, 0)],
-  [/\b(last slide|final slide)\b/, 'Last slide', () => show(SCENES.length - 1, 0)],
-  [/\b(open|show|go to|switch to) (the |us the )?(live view|live call|dashboard)\b/, 'Live view', () => { show(DEMO, 1); mount('live'); }],
-  [/\b(open|show|go to|switch to|try) (the )?browser demo\b/, 'Browser demo', () => { show(DEMO, 1); mount('try'); }],
-  [/\b(start|go to|show|jump to|time for) (the |a |our )?(live )?demo\b|\blet'?s call it\b/, 'Live demo', () => show(DEMO, 0)],
-  [/\b(show|go to|check) (me )?(the )?smile\b/, 'Smile', () => measureAt(0)],
-  [/\b(show|go to|check) (me )?(the )?arms\b/, 'Arms', () => measureAt(1)],
-  [/\b(show|go to|check) (me )?(the )?speech\b/, 'Speech', () => measureAt(2)],
-  [/\b(show|act|make) a change\b|\bback to (normal|usual)\b/, 'Act a change', () => { if (inScene('measure')) actChange(); }],
-  [/\b(play (it|that) again|replay|show (it|that) again)\b/, 'Replay', () => { if (inScene('escalate')) { escT0 = performance.now(); escHold = -1; } }],
-  [/\b(stop listening|voice off)\b/, 'Voice off', () => setVoice(false)],
-];
-const voice = { on: false, rec: null, running: false, endedAt: 0, fired: [], lastAt: 0, flash: 0, stream: null, track: null, ctx: null, analyser: null, buf: null,
+const replay = () => { if (inScene('escalate')) { escT0 = performance.now(); escHold = -1; } };
+const ACTIONS = { // what each command in voice.js does here
+  next: () => next(),
+  back: () => back(),
+  goto: c => show(c.n - 1, 0),
+  live: () => { show(DEMO, 1); mount('live'); },
+  try: () => { show(DEMO, 1); mount('try'); },
+  demo: () => show(DEMO, 0),
+  smile: () => measureAt(0),
+  arms: () => measureAt(1),
+  speech: () => measureAt(2),
+  change: () => { if (inScene('measure') && vTo <= .5) actChange(); },
+  normal: () => { if (inScene('measure') && vTo > .5) actChange(); },
+  replay: () => replay(),
+  voiceoff: () => setVoice(false),
+};
+const listener = makeListener({ scenes: SCENES.length });
+const voice = { on: false, rec: null, running: false, endedAt: 0, lastAt: 0, lastBy: '', flash: 0, holdT: 0, stream: null, track: null, ctx: null, analyser: null, buf: null,
   deviceId: store.get('onset.mic') || '', level: 0, loudAt: 0, startedAt: 0,
   // newer Chrome can be handed a microphone track; older ones always use the browser's default
   canRoute: !!SR && 'processLocally' in SR.prototype };
-const norm = t => String(t).toLowerCase().replace(/[’`]/g, "'").replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
 
-function fire(label, run, said) {
-  if (performance.now() - voice.lastAt < 450) return null; // one press or phrase, reported twice
-  voice.lastAt = performance.now();
+function fire(label, run, said, by = 'button') {
+  // one press or phrase, reported twice. Spoken commands are spaced out by the listener, so two
+  // different ones in a breath ("next slide, sorry, go back") both run.
+  const now = performance.now();
+  if (now - voice.lastAt < 450 && !(by === 'voice' && voice.lastBy === 'voice')) return null;
+  voice.lastAt = now; voice.lastBy = by;
   run();
   voiceBtn.classList.add('heard'); voiceText.textContent = `${said} → ${label}`;
+  if (by === 'voice') $('#voice-did').textContent = `${said} → ${label}`;
   clearTimeout(voice.flash); voice.flash = setTimeout(() => { voiceBtn.classList.remove('heard'); voiceText.textContent = voice.on ? VOICE_IDLE : 'Voice off'; }, 1400);
   return label;
 }
-/* alts: what the recogniser thinks was said, best first. index: which utterance. A phrase fires
-   once per time it is said, however often the recogniser revises the utterance. */
-function hear(alts, index = 0, final = true) {
-  const texts = (Array.isArray(alts) ? alts : [alts]).map(norm).filter(Boolean);
-  if (!texts.length) return null;
-  $('#voice-heard').textContent = texts[0].length > 64 ? '…' + texts[0].slice(-64) : texts[0];
-  const fired = voice.fired[index] || (voice.fired[index] = {});
-  for (const [re, label, run] of COMMANDS) {
-    const m = texts[0].match(new RegExp(re.source, 'g'));
-    if (m && m.length > (fired[label] || 0)) { fired[label] = m.length; return fire(label, run, `“${m[m.length - 1]}”`); }
-  }
-  // nothing in the best guess: once the utterance is complete, try the recogniser's other guesses
-  if (final && !Object.keys(fired).length) for (const t of texts.slice(1)) for (const [re, label, run] of COMMANDS) {
-    const m = re.exec(t);
-    if (m) { fired[label] = 1; return fire(label, run, `“${m[0]}”`); }
-  }
-  return null;
+const runCommands = cmds => cmds.map(c => fire(c.label, () => ACTIONS[c.cmd](c), `“${c.phrase}”`, 'voice')).filter(Boolean);
+/* results: everything the recogniser has for this session, [{ final, alts: [best guess, ...] }],
+   as it stands now. Called on every revision; the listener acts on each spoken command once.
+   A plain string is one complete utterance (for trying a phrase from the console). */
+function hear(results, now = performance.now()) {
+  if (typeof results === 'string') { listener.reset(); results = [{ final: true, alts: [results] }]; }
+  const did = runCommands(listener.feed(results, now));
+  const text = listener.heard().replace(/ \|(?= |$)/g, ' ·').replace(/ ·$/, '');
+  $('#voice-heard').textContent = text.length > 64 ? '…' + text.slice(-64) : text || '…';
+  // a phrase that depends on the next word ("next" ... "step") runs if no next word comes
+  clearTimeout(voice.holdT);
+  const wait = listener.wait(now);
+  if (wait >= 0) voice.holdT = setTimeout(() => runCommands(listener.poll(performance.now())), wait + 10);
+  return did;
 }
 
 /* the microphone: the one picked in the panel, with a level meter on it */
@@ -352,8 +356,8 @@ function startRec() {
   if (!voice.rec) {
     const rec = new SR(); voice.rec = rec;
     rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 4;
-    rec.onresult = e => { for (let i = e.resultIndex; i < e.results.length; i++) hear(Array.from(e.results[i], a => a.transcript), i, e.results[i].isFinal); };
-    rec.onstart = () => { voice.running = true; voice.fired = []; };
+    rec.onresult = e => hear(Array.from(e.results, r => ({ final: r.isFinal, alts: Array.from(r, a => a.transcript) })));
+    rec.onstart = () => { voice.running = true; clearTimeout(voice.holdT); listener.reset(); };
     rec.onerror = e => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') voiceError('Microphone blocked: allow it, then press V');
       else if (e.error === 'network') voiceError('Voice needs an internet connection');
@@ -369,7 +373,7 @@ function startRec() {
   catch (err) { if (err.name !== 'InvalidStateError') { try { voice.rec.start(); } catch { /* already running */ } } }
 }
 function voiceError(msg) {
-  voice.on = false; try { voice.rec?.abort(); } catch { /* not started */ } closeMic();
+  voice.on = false; clearTimeout(voice.holdT); try { voice.rec?.abort(); } catch { /* not started */ } closeMic();
   voiceBtn.classList.remove('on'); voiceBtn.classList.add('err'); voiceBtn.setAttribute('aria-pressed', 'false');
   voiceText.textContent = msg; $('#voice-toggle').textContent = 'Turn voice on'; $('#voice-hint').textContent = msg;
 }
@@ -385,7 +389,7 @@ async function setVoice(on) {
   voice.on = on; voiceBtn.classList.toggle('on', on); voiceBtn.setAttribute('aria-pressed', String(on));
   voiceText.textContent = on ? VOICE_IDLE : 'Voice off'; $('#voice-toggle').textContent = on ? 'Turn voice off' : 'Turn voice on';
   store.set('onset.voice', on ? '1' : '0');
-  if (!on) { try { voice.rec?.abort(); } catch { /* not started */ } closeMic(); return; }
+  if (!on) { clearTimeout(voice.holdT); try { voice.rec?.abort(); } catch { /* not started */ } closeMic(); return; }
   startClicker();
   try { await openMic(); } catch { return voiceError('Microphone blocked: allow it, then press V'); }
   if (voice.on) startRec();
@@ -457,7 +461,7 @@ addEventListener('keydown', e => {
   else if (k === 'Escape') { $('#help').hidden = true; voicePanel.hidden = true; }
   else if (id === 'measure' && '123'.includes(k)) show(si, +k - 1);
   else if (id === 'measure' && (k === 'a' || k === 'A')) actChange();
-  else if (id === 'escalate' && (k === 'r' || k === 'R')) { escT0 = performance.now(); escHold = -1; }
+  else if (id === 'escalate' && (k === 'r' || k === 'R')) replay();
   else if (id === 'demo' && (k === 'l' || k === 'L')) { if (st === 0) show(si, 1); mount('live'); }
   else if (id === 'demo' && (k === 'b' || k === 'B')) { if (st === 0) show(si, 1); mount('try'); }
 });
@@ -480,5 +484,5 @@ addEventListener('keydown', e => {
   show(m ? +m[1] - 1 : 0, m && m[2] ? +m[2] - 1 : 0, { instant: true });
   addEventListener('hashchange', () => { const h = /^#(\d+)(?:\.(\d+))?$/.exec(location.hash); if (h) show(+h[1] - 1, h[2] ? +h[2] - 1 : 0); });
   if (params.has('voice') || store.get('onset.voice') === '1') setVoice(true);
-  window.onsetDeck = { show, next, back, world, live, hear, state: () => ({ scene: SCENES[si].id, step: st }) };
+  window.onsetDeck = { show, next, back, world, live, hear, matchCommand: t => matchCommand(t, { scenes: SCENES.length }), state: () => ({ scene: SCENES[si].id, step: st }) };
 })();
