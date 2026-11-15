@@ -39,6 +39,7 @@ class BriefInfo:
     reasons: tuple[str, ...] = ()  # what Onset measured, as short sentences
     when: str = ""                 # e.g. "Sat 14 Nov at 9:02 am"
     run_id: str = ""
+    group: bool = False            # a group FaceTime call: the person AND the caregiver are both on it
 
     @classmethod
     def from_meta(cls, meta: Mapping[str, Any] | None) -> "BriefInfo":
@@ -52,11 +53,11 @@ class BriefInfo:
         outcome = text("outcome", 20)
         return cls(patient=text("patient", 40), caregiver=text("caregiver", 40),
                    outcome=outcome if outcome in ("escalate", "unclear") else "escalate",
-                   reasons=clean, when=text("when", 60), run_id=text("run_id", 64))
+                   reasons=clean, when=text("when", 60), run_id=text("run_id", 64), group=m.get("group") is True)
 
     def to_meta(self) -> dict:
         return {"onset": ROLE, "patient": self.patient, "caregiver": self.caregiver, "outcome": self.outcome,
-                "reasons": list(self.reasons), "when": self.when, "run_id": self.run_id}
+                "reasons": list(self.reasons), "when": self.when, "run_id": self.run_id, "group": self.group}
 
     def to_json(self) -> str:
         return json.dumps(self.to_meta())
@@ -83,8 +84,13 @@ def lines(info: BriefInfo) -> list[Line]:
     else:
         found_say = f"{_poss(who)} check-in just now was different from their usual check-in."
         found_cap = f"{_poss(who)} check-in was different from their usual."
-    hello = f"Hello{' ' + info.caregiver if info.caregiver else ''}. This is Onset, the check-in helper for {who}."
-    out = [Line(say=hello, caption=f"This is Onset, calling about {who}."), Line(say=found_say, caption=found_cap)]
+    if info.group:  # both of them are listening
+        both = f"{info.patient} and {info.caregiver}, you" if info.patient and info.caregiver else "You"
+        first = Line(say=f"Hello. This is Onset. {both} are both on this call.", caption="This is Onset. You are both on this call.")
+    else:
+        hello = f"Hello{' ' + info.caregiver if info.caregiver else ''}. This is Onset, the check-in helper for {who}."
+        first = Line(say=hello, caption=f"This is Onset, calling about {who}.")
+    out = [first, Line(say=found_say, caption=found_cap)]
     out += [Line(say=r, caption=r) for r in info.reasons]
     out.append(action_line(info))
     return out
@@ -92,12 +98,25 @@ def lines(info: BriefInfo) -> list[Line]:
 
 def action_line(info: BriefInfo) -> Line:
     who = _who(info)
+    if info.group:
+        to = f"{info.caregiver}, please" if info.caregiver else "Please"
+        return Line(say=f"{to} check on {who} now. If anything seems wrong, call 9 1 1.",
+                    caption=f"Check on {who} now. If anything seems wrong, call 911 now.")
     return Line(say=f"Please call {who} now. If you cannot reach them, call 9 1 1.",
                 caption=f"Call {who} now. If you can't reach them, call 911 now.")
 
 
+GROUP_GOODBYE = Line(say="I am leaving the call now so the two of you can talk. This was Onset.",
+                     caption="Onset is leaving. Stay on and talk. If anything seems wrong, call 911 now.")
+
+
+def script(info: BriefInfo) -> list[Line]:
+    """Everything Onset says on the call, in order: the briefing, the action once more, goodbye."""
+    return [*lines(info), action_line(info), GROUP_GOODBYE if info.group else GOODBYE]
+
+
 def spoken(info: BriefInfo) -> list[str]:
-    return [ln.say for ln in (*lines(info), GOODBYE) if ln.say]
+    return [ln.say for ln in script(info) if ln.say]
 
 
 @functools.lru_cache(maxsize=8)

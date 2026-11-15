@@ -810,6 +810,12 @@ class CheckFlow:
                 self.caption = self.outcome_line.caption
                 self._cg_frame = None
 
+    def announce(self, line, on_done: Callable[[], None] | None = None) -> None:
+        """Say and show one more line after the closing line (e.g. script.CALLBACK)."""
+        with self._lock:
+            self.caption = line.caption
+        self._speak(line.say, on_done)
+
     def caregiver_note(self, detail: str) -> None:
         """Something about the caregiver that is not a change of status (their page says the
         microphone is blocked): the same status again, with the reason, for the dashboard and log."""

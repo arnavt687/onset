@@ -183,6 +183,12 @@ CLOSE_UNCLEAR = Line(
 )
 
 # Said when the caregiver opens the link and joins (they can see the caller).
+# ONSET_CAREGIVER_CALL=group: Onset hangs up and rings the person and their caregiver together.
+CALLBACK = Line(
+    say="I am going to hang up, and call you straight back together with your caregiver. Please answer.",
+    caption="Hanging up. I will call you back with your caregiver. Please answer.",
+)
+
 CAREGIVER_JOINED = Line(
     say="Your caregiver has joined the call. Please still call 9 1 1.",
     caption="Your caregiver has joined. Please call 911 now.",

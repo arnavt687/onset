@@ -63,7 +63,8 @@ prints names only.
 | `ONSET_CAREGIVER_TALK` | no | `1` (default): with the caregiver page, the caregiver can talk to the caller |
 | `ONSET_CAREGIVER_PAGE` | no | Where you host `web/caregiver/` (e.g. GitHub Pages). Unset: a watch-only LiveKit Meet link |
 | `ONSET_CAREGIVER_LINK_TTL_S` | no | How long the caregiver's link works (default 900 s) |
-| `ONSET_CAREGIVER_CALL` | no | `after`: once the person's call ends, Onset also FaceTimes the caregiver and tells them what it found. `off` (default). See [escalation.md](escalation.md) |
+| `ONSET_CAREGIVER_CALL` | no | `group`: Onset hangs up and rings the person and the caregiver together in one group FaceTime call (Chert must enable group calling on the line). `after`: once the person's call ends, Onset FaceTimes the caregiver alone. `off` (default). See [escalation.md](escalation.md) |
+| `ONSET_PATIENT_PHONE` | for `group` | The person's own phone (E.164), so Onset can call them back |
 | `ONSET_LIVE_ACTIONS` | no | `0` (default): dry run, nothing is sent. `1`: real iMessages; see [Going live](#going-live) |
 | `ONSET_LIVE_ACTIONS_DENY` | no | Keep some kinds dry even when live: `imessage`, `call`, `invite` |
 | `ONSET_SPEECH_VAD` | no | `1` (default) stops recording the sentence when the caller stops talking |

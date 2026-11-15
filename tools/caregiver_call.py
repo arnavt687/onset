@@ -9,6 +9,10 @@ call from the same line, placed once the person's own call has ended.
             place one call now (a real FaceTime call: needs --yes or ONSET_LIVE_ACTIONS=1)
     tools/caregiver_call.py --to +15551230002 --patient Alex
             dry run: show what would be asked of Chert; nothing rings
+    tools/caregiver_call.py --to +15551230002 --patient-phone +15551230001 --patient Alex --caregiver Sam --yes
+            a GROUP FaceTime call: the person and the caregiver ring together, Onset says what it
+            found and leaves them talking. Chert must have switched group calling on for the line,
+            and both phones must have joined it.
     tools/caregiver_call.py --fake-bridge --agent-name onset-flowtest --patient Alex --reason "..."
             no Chert at all: this tool plays Chert's side of the call (joins the room, says
             "bridge ready") and reports what the caregiver would hear and see. For testing.
@@ -87,9 +91,11 @@ def load_env() -> None:
 def info_from_args(a: argparse.Namespace) -> tuple[brief.BriefInfo, str]:
     if a.brief:
         data = json.loads(Path(a.brief).read_text(encoding="utf-8"))
+        a.patient_phone = str(data.get("patient_to") or getattr(a, "patient_phone", "") or "").strip()
         return brief.BriefInfo.from_meta(data), str(data.get("to") or a.to or "").strip()
     meta = {"patient": a.patient, "caregiver": a.caregiver, "outcome": a.outcome, "reasons": a.reason or [],
-            "when": time.strftime("%a %-d %b at %-I:%M %p"), "run_id": f"manual-{uuid.uuid4().hex[:8]}"}
+            "when": time.strftime("%a %-d %b at %-I:%M %p"), "run_id": f"manual-{uuid.uuid4().hex[:8]}",
+            "group": bool(a.patient_phone)}
     return brief.BriefInfo.from_meta(meta), (a.to or "").strip()
 
 
@@ -191,12 +197,15 @@ async def run(a: argparse.Namespace) -> int:
     if not a.fake_bridge and not to:
         say("no phone to call: pass --to +15551234567")
         return 2
-    target = mask(to) if to else "(fake bridge)"
+    group = [a.patient_phone, to] if (a.patient_phone and to) else None
+    target = (" and ".join(mask(x) for x in group) + " together") if group else mask(to) if to else "(fake bridge)"
+    if a.fake_bridge and info.group:
+        target = "(fake bridge, group)"
 
     if not real and not a.fake_bridge:  # a dry run: show the request, touch nothing
-        res = await chert_api.place_check_in_call(to, dry_run=True, when_busy="queue")
+        res = await chert_api.place_check_in_call(to, dry_run=True, when_busy="queue", recipients=group)
         say(f"DRY RUN ({gate.reason}): would FaceTime {target} and say:")
-        for ln in (*brief.lines(info), brief.GOODBYE):
+        for ln in brief.script(info):
             print("        ", ln.say)
         if res.get("request"):
             print("        ", res["request"]["method"], res["request"]["url"])
@@ -247,7 +256,8 @@ async def run(a: argparse.Namespace) -> int:
                                                 api_secret=os.environ["LIVEKIT_API_SECRET"], ttl_s=900)
             return await chert_api.place_check_in_call(to, dry_run=False, livekit_url=os.environ["LIVEKIT_URL"],
                                                        participant_token=token, remote_participant_identity=agent.identity,
-                                                       video=True, when_busy="queue", idempotency_key=key)
+                                                       video=not a.no_video, when_busy="queue", idempotency_key=key,
+                                                       recipients=group)
 
         res = await place()
         waited = 0.0
@@ -276,7 +286,7 @@ async def run(a: argparse.Namespace) -> int:
             return 1
         call_id = res["call_id"]
         say(f"Chert is calling {target} (call {str(call_id)[:8]})")
-        emit("ringing", "Onset is FaceTiming the caregiver", target=target)
+        emit("ringing", "Onset is ringing them both" if group else "Onset is FaceTiming the caregiver", target=target)
 
         end = time.monotonic() + a.ring_seconds
         while time.monotonic() < end:
@@ -306,8 +316,9 @@ async def run(a: argparse.Namespace) -> int:
             if c.get("terminal"):
                 break
             await asyncio.sleep(1.5)
-        say("the briefing call is over")
-        emit("ended", "the caregiver call ended", target=target)
+        say("Onset has said its part and left; the two of them can keep talking on FaceTime" if group
+            else "the briefing call is over")
+        emit("ended", "Onset left the group call; they can keep talking" if group else "the caregiver call ended", target=target)
         return 0
     finally:
         if call_id:
@@ -330,6 +341,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--caregiver", default="", help="the caregiver's first name")
     p.add_argument("--outcome", default="escalate", choices=("escalate", "unclear"))
     p.add_argument("--reason", action="append", help="what Onset measured, one short sentence (repeatable)")
+    p.add_argument("--patient-phone", default="", help="the person's own phone: makes it a GROUP call with both of them")
+    p.add_argument("--no-video", action="store_true", help="audio only (group video is enabled separately by Chert)")
     p.add_argument("--yes", action="store_true", help="place a real FaceTime call (otherwise only when ONSET_LIVE_ACTIONS=1)")
     p.add_argument("--wait-room", help="first wait for the person's call in this LiveKit room to end")
     p.add_argument("--wait-seconds", type=float, default=600.0)

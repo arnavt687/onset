@@ -191,6 +191,8 @@ REFUSALS = {
     "credit_exhausted": "this project has no trial credit left",
     "cli_scope_denied": "a Chert CLI sign-in cannot send messages: set CHERT_API_KEY to a project key (ftk_...)",
     "outbound_disabled": "outbound calls are not switched on for this line or plan: ask Chert to enable them",
+    "facetime_group_unavailable": "group FaceTime calls are not switched on for this line: ask Chert to enable group calling on it",
+    "verification_unavailable": "Chert cannot verify phones for this project right now",
     "line_busy": "the line is on another call",
     "shared_line_busy": "the line is on another call",
     "shared_minutes_limit": "the project has no FaceTime minutes left today",
@@ -551,8 +553,15 @@ async def place_check_in_call(
     idempotency_key: str | None = None,
     config: ChertConfig | None = None,
     transport: Transport | None = None,
+    recipients: list[str] | None = None,
 ) -> dict:
     """Ask Chert to FaceTime `destination` and route it to this agent (piece 8, if Chert allows it).
+
+    `recipients` (two or more phones) makes it a **group** FaceTime call instead: Chert's
+    documented way to have several people on one call (docs.trychert.com, Group calls). It is
+    sent instead of `destination`. Group calling is switched on per line by Chert
+    (`facetime_group_unavailable` when it is not), and on trial and Shared lines every recipient
+    must have joined the line: one that has not rejects the whole group.
 
     The caller first creates a LiveKit room, dispatches the agent into it (silent until
     `bridge_ready`), and mints a bridge token with `mint_bridge_token`. This sends
@@ -570,7 +579,14 @@ async def place_check_in_call(
     key = idempotency_key or new_idempotency_key("call")
     try:
         destination = (destination or "").strip()
-        if _E164.match(destination):
+        group = [r.strip() for r in (recipients or []) if r and r.strip()]
+        if group:
+            if len(set(group)) != len(group) or not 1 <= len(group) <= 31:
+                return _result("error", error="invalid_destination", detail="recipients: 1 to 31 different phones", idempotency_key=key)
+            if not all(_E164.match(r) for r in group):
+                return _result("error", error="invalid_destination", detail="every recipient must be an E.164 phone such as +15551234567", idempotency_key=key)
+            dtype = "group"
+        elif _E164.match(destination):
             dtype = "phone"
         elif _EMAIL.match(destination):
             dtype = "email"
@@ -603,6 +619,9 @@ async def place_check_in_call(
         }
         if when_busy == "queue":
             payload["when_busy"] = "queue"
+        if group:  # Chert: send recipients INSTEAD of destination and destination_type
+            del payload["destination"], payload["destination_type"]
+            payload["recipients"] = [{"type": "phone_number", "value": r} for r in group]
 
         if dry_run:
             try:
@@ -610,13 +629,16 @@ async def place_check_in_call(
                 project, line = cfg.project_id, cfg.line_id
             except ConfigError:
                 project, line = None, None
+            if group:
+                payload = dict(payload, recipients=[{"type": "phone_number", "value": _mask(r)} for r in group])
             shown = dict(payload, line_id=line or "<from GET /api/v1/lines>",
                          livekit_url=livekit_url or "<LIVEKIT_URL>",
                          participant_token=f"<bridge token, {len(participant_token)} chars>" if participant_token else "<bridge token>",
                          remote_participant_identity=remote_participant_identity or "<agent identity>")
             headers = {"Authorization": "Bearer ***", "X-Chert-Project-Id": project or "<CHERT_PROJECT_ID>",
                        "Accept": "application/json", "Idempotency-Key": key, "Content-Type": "application/json"}
-            log.info("chert dry run: outbound %s call to %s", "video" if video else "audio", _mask(destination))
+            log.info("chert dry run: outbound %s call to %s", "video" if video else "audio",
+                     ", ".join(_mask(r) for r in group) if group else _mask(destination))
             return _result("dry_run", detail="dry run: no call was placed", idempotency_key=key,
                            request={"method": "POST", "url": _url("/calls"), "headers": headers, "json": shown})
 

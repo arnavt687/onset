@@ -110,6 +110,43 @@ hours of the caregiver's last text; see [chert-messaging.md](chert-messaging.md)
   - whether caller capture (`facetime-remote-video`) is visible to a non-agent participant;
   - that the relayed voice sounds right on the iPhone.
 
+## A group FaceTime call with both of them (`ONSET_CAREGIVER_CALL=group`)
+
+This is what Chert's team recommends for having two people on one call, and the only way to do
+it on FaceTime itself. Chert cannot add a person to a call in progress, but it can **start** a
+group call. So on an escalation Onset:
+
+1. says the closing line, then "I am going to hang up, and call you straight back together with
+   your caregiver. Please answer", and ends the call (the line carries one call at a time);
+2. places one group FaceTime call to the person and the caregiver
+   (`POST /api/v1/calls` with `recipients: [...]` instead of `destination`);
+3. when it is answered, says who is on the call, what the check-in found, and "Sam, please check
+   on Alex now. If anything seems wrong, call 911";
+4. leaves. Chert's side drops out and the two of them keep talking on FaceTime.
+
+Inside the room the people on a group call arrive as one mixed audio track, so the agent's side
+is the same as for a single caregiver (`tools/fake_brief_private.sh --patient-phone +1...` tests
+it without Chert).
+
+What it needs, beyond the single caregiver call below:
+
+| Need | How |
+|---|---|
+| Group calling switched on for the line | **Ask Chert.** It is enabled per line, not by plan. Without it: `facetime_group_unavailable` |
+| Both phones joined to the line | `tools/chert_join.py`. One phone that has not joined rejects the whole group (`recipient_not_verified`) |
+| The person's own phone | `ONSET_PATIENT_PHONE=+1...` (or `phones` in the patients file): Chert does not tell the agent who is calling |
+| Group video, if the card should be seen | Enabled separately by Chert. `tools/caregiver_call.py --no-video` places it audio only |
+
+Chert's documents warn that a group call can be partly answered and that there is no way to
+see who joined, so Onset says its part once the call is up, whoever is on it.
+
+```bash
+tools/caregiver_call.py --to +1<caregiver> --patient-phone +1<person> --patient Alex --caregiver Sam \
+    --reason "The left arm dropped while it was held up" --yes          # one real group call, now
+```
+
+Without `ONSET_PATIENT_PHONE` the `group` setting falls back to calling the caregiver alone.
+
 ## Onset FaceTimes the caregiver (`ONSET_CAREGIVER_CALL=after`)
 
 Chert cannot put the caregiver into the patient's FaceTime call, so with this switch on Onset

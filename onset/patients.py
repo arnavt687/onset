@@ -212,7 +212,10 @@ def from_env(env: Mapping[str, str] | None = None) -> Profiles:
     phone = (env.get("ONSET_CAREGIVER_PHONE") or "").strip()
     if phone and not _E164.match(phone):
         raise ProfileError("ONSET_CAREGIVER_PHONE: must be an E.164 phone (+15551234567)")
-    p = Patient(pid, env.get("ONSET_PATIENT_NAME", "") or "Demo patient", (),
+    own = (env.get("ONSET_PATIENT_PHONE") or "").strip()  # where Onset calls the person back (group call)
+    if own and not _E164.match(own):
+        raise ProfileError("ONSET_PATIENT_PHONE: must be an E.164 phone (+15551234567)")
+    p = Patient(pid, env.get("ONSET_PATIENT_NAME", "") or "Demo patient", (own,) if own else (),
                 Caregiver(env.get("ONSET_CAREGIVER_NAME", "") or "", phone), None, "env")
     return Profiles((p,), pid, "env")
 

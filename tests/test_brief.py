@@ -124,3 +124,73 @@ def test_briefing_file_from_the_agent(tmp_path):
     f.write_text(json.dumps({**INFO.to_meta(), "to": "+15550100909"}))
     info, to = caregiver_call.info_from_args(caregiver_call.argparse.Namespace(brief=str(f), to=None))
     assert info == INFO and to == "+15550100909"
+
+
+# ---------------------------------------------------------------- the group call (what Chert's team recommends)
+
+GROUP = brief.BriefInfo(patient="Alex", caregiver="Sam", reasons=("The left arm dropped while it was held up",), group=True)
+
+
+def test_group_call_words_address_them_both_and_onset_leaves():
+    said = [ln.say for ln in brief.script(GROUP)]
+    assert said[0] == "Hello. This is Onset. Alex and Sam, you are both on this call."
+    assert "Sam, please check on Alex now. If anything seems wrong, call 9 1 1." in said
+    assert said[-1].startswith("I am leaving the call now so the two of you can talk")
+    assert overlay.is_alert(brief.script(GROUP)[-1].caption)
+    assert brief.BriefInfo.from_meta(json.loads(GROUP.to_json())) == GROUP
+    assert brief.BriefInfo.from_meta({"group": "yes"}).group is False  # only a real true
+    alone = [ln.say for ln in brief.script(INFO)]
+    assert alone[-1] == brief.GOODBYE.say and "both on this call" not in " ".join(alone)
+
+
+def test_group_call_request_uses_recipients_instead_of_destination():
+    sent = {}
+
+    async def transport(method, url, headers, body):
+        if method == "POST":
+            sent.update(body)
+            return chert_api.HttpResponse(201, {"data": {"id": CALL, "status": "allocated"}}, {})
+        return chert_api.HttpResponse(404, {}, {})
+
+    cfg = chert_api.load_config(ENV)
+    token = chert_api.mint_bridge_token("onset-brief-x", api_key="APIabc", api_secret="s" * 40)
+    kw = dict(dry_run=False, livekit_url="wss://x.livekit.cloud", participant_token=token,
+              remote_participant_identity="agent-1", when_busy="queue", config=cfg, transport=transport)
+    res = asyncio.run(chert_api.place_check_in_call("+15550100909", recipients=["+15550100001", "+15550100909"], **kw))
+    assert res["status"] == "allocated" and res["call_id"] == CALL
+    assert sent["recipients"] == [{"type": "phone_number", "value": "+15550100001"}, {"type": "phone_number", "value": "+15550100909"}]
+    assert "destination" not in sent and "destination_type" not in sent and sent["when_busy"] == "queue"
+    for bad in (["+15550100001", "+15550100001"], ["+15550100001", "not-a-phone"]):
+        assert asyncio.run(chert_api.place_check_in_call("", recipients=bad, **kw))["error"] == "invalid_destination"
+    dry = asyncio.run(chert_api.place_check_in_call("", recipients=["+15550100001", "+15550100909"], dry_run=True, config=cfg))
+    assert dry["status"] == "dry_run" and "+15550100001" not in json.dumps(dry), "numbers are masked in a dry run"
+
+
+def test_group_refusals_are_explained():
+    assert "ask Chert to enable group calling" in chert_api.explain("facetime_group_unavailable")
+    assert chert_api.explain("recipient_not_verified").startswith("This phone has not joined")
+
+
+def test_group_switch_and_the_persons_own_phone():
+    from onset import patients
+
+    assert EscalationConfig.from_env({"ONSET_CAREGIVER_CALL": "group"}).call == "group"
+    prof = patients.from_env({"ONSET_PATIENT_NAME": "Alex", "ONSET_PATIENT_PHONE": "+15550100001",
+                              "ONSET_CAREGIVER_PHONE": "+15550100909"})
+    person = prof.patients[0] if hasattr(prof, "patients") else prof[0][0]
+    assert person.phones == ("+15550100001",) and "0100001" not in repr(person)
+    try:
+        patients.from_env({"ONSET_PATIENT_PHONE": "555-0100"})
+        raise AssertionError("a bad phone must be refused")
+    except patients.ProfileError as e:
+        assert "ONSET_PATIENT_PHONE" in str(e)
+
+
+def test_group_dry_run_from_the_command_line(capsys, monkeypatch, tmp_path):
+    monkeypatch.delenv("ONSET_LIVE_ACTIONS", raising=False)
+    monkeypatch.setattr(caregiver_call, "LIVE", tmp_path)
+    monkeypatch.setattr(caregiver_call, "load_env", lambda: None)
+    rc = caregiver_call.main(["--to", "+15550100909", "--patient-phone", "+15550100001", "--patient", "Alex", "--caregiver", "Sam"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "together" in out and "you are both on this call" in out and "leaving the call now" in out
+    assert "+15550100909" not in out and "+15550100001" not in out

@@ -445,8 +445,13 @@ class Escalation:
         this job ends with the caller's call, and that process has to outlive it. It goes
         through the same safety gate as every other action (a dry run unless ONSET_LIVE_ACTIONS=1)."""
         phone = self.patient.caregiver.phone
-        if self.cfg.call != "after" or not phone:
+        if self.cfg.call not in ("after", "group") or not phone:
             return
+        own = self.patient.phones[0] if self.patient.phones else ""
+        group = self.cfg.call == "group" and bool(own)
+        if self.cfg.call == "group" and not own:
+            log.warning("[onset] ONSET_CAREGIVER_CALL=group needs the person's own phone (ONSET_PATIENT_PHONE): "
+                        "calling the caregiver alone instead")
         try:
             import subprocess
             from datetime import datetime
@@ -454,8 +459,9 @@ class Escalation:
             info = brief.BriefInfo(patient=caregiver.first_name(self.patient.name),
                                    caregiver=caregiver.first_name(self.patient.caregiver.name),
                                    outcome=decision.outcome.value, reasons=tuple(decision.reasons or ())[:brief.MAX_REASONS],
-                                   when=datetime.now().strftime("%a %-d %b at %-I:%M %p"), run_id=self.run_id)
-            path = self.sink.private_file("caregiver_call.json", json.dumps({**info.to_meta(), "to": phone}))
+                                   when=datetime.now().strftime("%a %-d %b at %-I:%M %p"), run_id=self.run_id, group=group)
+            path = self.sink.private_file("caregiver_call.json", json.dumps(
+                {**info.to_meta(), "to": phone, **({"patient_to": own} if group else {})}))
             if path is None:
                 raise OSError("could not write the briefing file")
             logs = REPO / "runs" / "demo-logs"
@@ -465,11 +471,36 @@ class Escalation:
                                   "--wait-room", self.ctx.room.name, "--agent-name", AGENT_NAME],
                                  cwd=str(REPO), stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
                                  start_new_session=True)
-            log.info("[onset] the caregiver will be FaceTimed when this call ends")
+            log.info("[onset] %s when this call ends", "a group FaceTime call follows" if group else "the caregiver will be FaceTimed")
             if self.flow is not None:
-                self.flow.caregiver_note("Onset will FaceTime the caregiver when this call ends")
+                self.flow.caregiver_note("Onset will ring the person and the caregiver together when this call ends" if group
+                                         else "Onset will FaceTime the caregiver when this call ends")
+            if group:  # the line carries one call: this one has to end before the group call can start
+                self._spawn(self._hang_up_for_group())
         except Exception as e:  # noqa: BLE001 - the link and the text still go out
             log.warning("[onset] could not start the caregiver call: %s", type(e).__name__)
+
+    async def _hang_up_for_group(self) -> None:
+        """Tell the person Onset is calling straight back with their caregiver, then end this call."""
+        done = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        if self.flow is not None:
+            self.flow.announce(script.CALLBACK, lambda: loop.call_soon_threadsafe(done.set))
+        try:
+            await asyncio.wait_for(done.wait(), 25.0)  # the closing line plays first, then this one
+        except asyncio.TimeoutError:
+            pass
+        await asyncio.sleep(1.0)
+        try:  # hang up through Chert when the room says which call this is; leaving the room does it too
+            call_id = json.loads(self.ctx.room.metadata or "{}").get("chert_call")
+            if call_id and os.environ.get("CHERT_API_KEY"):
+                from onset import chert_api
+
+                await chert_api.end_call(str(call_id))
+        except Exception:  # noqa: BLE001
+            log.debug("could not end the call through Chert", exc_info=True)
+        log.info("[onset] ending this call: the group call follows")
+        self.ctx.shutdown(reason="calling back as a group")
 
     async def _start_relay(self, side_room: str) -> None:
         from onset.relay import SideRoomRelay
@@ -537,7 +568,8 @@ async def brief_entry(ctx: JobContext, meta: dict) -> None:
     Chert's contract for a call Onset places (docs/outbound.md): be in the room first with one
     audio track and the camera track, stay silent until `chert_bridge_ready`, then speak."""
     info = brief.BriefInfo.from_meta(meta)
-    log.info("[onset] caregiver briefing call for run %s (%s)", info.run_id or "?", info.outcome)
+    log.info("[onset] %s for run %s (%s)", "group call with the person and the caregiver" if info.group
+             else "caregiver briefing call", info.run_id or "?", info.outcome)
     await ctx.connect(auto_subscribe=AutoSubscribe.SUBSCRIBE_NONE)
 
     vsource = rtc.VideoSource(OUT_W, OUT_H)
@@ -578,7 +610,7 @@ async def brief_entry(ctx: JobContext, meta: dict) -> None:
     video = asyncio.create_task(video_loop())
     voices = make_tts_chain()
     speaker = Speaker(voices[0], fallbacks=voices[1:])
-    said = [*brief.lines(info), brief.action_line(info), brief.GOODBYE]
+    said = brief.script(info)
     # Synthesize while the phone rings, so the first words follow bridge_ready at once.
     audio = asyncio.gather(*(speaker.synth(ln.say, budget_s=12.0) for ln in said), return_exceptions=True)
 

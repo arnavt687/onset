@@ -38,7 +38,11 @@ patient, on FaceTime, straight away.
   hears and sees the caregiver inside the same FaceTime call.
   Code: [`onset/relay.py`](../onset/relay.py), [`onset/caregiver.py`](../onset/caregiver.py),
   [`web/caregiver/`](../web/caregiver/), `Escalation` in [`agent.py`](../agent.py).
-- Once the patient's call ends, Onset places a second call to the caregiver through
+- On Chert's advice we also use a **group call**: Onset tells the patient it is calling straight
+  back, hangs up, and starts one group FaceTime call to the patient and the caregiver
+  (`recipients: [...]`), says what it found, and leaves them talking. It works on FaceTime
+  itself, but the patient has to be hung up on and answer again, in the middle of an alert.
+- Or, once the patient's call ends, Onset places a second call to the caregiver alone through
   `POST /api/v1/calls` (queued if the line is still busy) and briefs them by voice and on screen.
   Code: [`tools/caregiver_call.py`](../tools/caregiver_call.py), [`onset/brief.py`](../onset/brief.py).
 
