@@ -428,6 +428,8 @@ class Escalation:
         if invite is not None:
             if invite.side_room:  # listen before anyone can have the link
                 await self._start_relay(invite.side_room)
+            # ONSET_LINK_SHORTENER: a link short enough to tap or type; the long one if that fails
+            invite = self.invite = await caregiver.with_short_link(invite, self.cfg)
             if flow is not None:
                 flow.caregiver_update("invited", "join link: " + (
                     "caregiver page" if invite.kind == "page" else "LiveKit Meet, watch only"))

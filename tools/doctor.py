@@ -745,6 +745,16 @@ def check_escalation(env: Mapping[str, str]) -> list[Check]:
     else:
         out.append(Check(PASS, "escalation", "link: the caregiver gets the summary and a link to watch"
                          + (" and talk (Onset relays them)" if talk and page else "") + f"; link valid {ttl} s"))
+    from onset import shorten
+
+    raw = (env.get("ONSET_LINK_SHORTENER") or "").strip()
+    svc = shorten.service_from(raw)
+    if svc != "off":
+        out.append(Check(WARN, "link shortener", f"{shorten.SERVICES[svc].name} shortens the caregiver link. That service "
+                         f"stores the link with its watch key (watch and hear this call, for {ttl} s; it cannot talk). "
+                         "Fine for a demo; think before using it with a real patient"))
+    elif raw.lower() not in shorten.OFF:
+        out.append(Check(FAIL, "link shortener", f"ONSET_LINK_SHORTENER={raw!r}: use off, " + ", ".join(shorten.SERVICES)))
     return out
 
 

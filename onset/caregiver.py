@@ -58,6 +58,9 @@ class EscalationConfig:
     # person and the caregiver together in one group FaceTime call, says what it found, and leaves
     # them talking (Chert's way to have two people on a call). "off" (default): link and text only.
     call: str = "off"
+    # A public link shortener for the join link ("isgd" or "dagd"), or "off" (default).
+    # The service sees the link and its watch key: onset/shorten.py says what that means.
+    shortener: str = "off"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "EscalationConfig":
@@ -74,8 +77,11 @@ class EscalationConfig:
         if call not in ("off", "after", "group"):
             log.warning("[onset] ONSET_CAREGIVER_CALL=%r is not off|after|group; using off", call)
             call = "off"
+        from onset.shorten import service_from
+
         return cls(join=join, talk=(env.get("ONSET_CAREGIVER_TALK") or "1").strip() != "0",
-                   page=(env.get("ONSET_CAREGIVER_PAGE") or "").strip(), ttl_s=max(120, min(ttl, 7200)), call=call)
+                   page=(env.get("ONSET_CAREGIVER_PAGE") or "").strip(), ttl_s=max(120, min(ttl, 7200)), call=call,
+                   shortener=service_from(env.get("ONSET_LINK_SHORTENER")))
 
 
 @dataclass(frozen=True)
@@ -198,6 +204,26 @@ def invite_text(summary: str, link: str | None, *, caregiver_name: str = "", pat
                      f"Onset has told {who} to call 911.\n\n{link}")
     text = "\n\n".join(parts)
     return text if len(text) <= MAX_TEXT else summary.strip()[:MAX_TEXT]
+
+
+async def with_short_link(invite: Invite, cfg: EscalationConfig, *, shorten: Callable[..., Awaitable[str | None]] | None = None) -> Invite:
+    """The same invite with its link made short (ONSET_LINK_SHORTENER), or unchanged: when the
+    option is off, when the shortener fails or is slow, or when its link does not lead back to
+    ours exactly. Never raises. The keys, rooms and expiry are untouched."""
+    if cfg.shortener == "off":
+        return invite
+    if shorten is None:
+        from onset.shorten import shorten
+    try:
+        short = await shorten(invite.link, cfg.shortener)
+    except Exception as e:  # noqa: BLE001
+        log.warning("[onset] link shortener failed (%s): the long link is used", type(e).__name__)
+        short = None
+    if not short:
+        return invite
+    from dataclasses import replace
+
+    return replace(invite, link=short)
 
 
 async def _default_send(recipient: str, text: str, dry_run: bool) -> dict:
