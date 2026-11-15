@@ -4,8 +4,9 @@
 # A fallback for when Chert's caregiver text is refused (recipient_not_verified, a closed reply
 # window on the free trial, or a line whose inbound iMessage is not working). The Mac sends an
 # ordinary iMessage from whatever Apple ID is signed in to Messages, so Chert's joining rules do
-# not apply. The message is the same one Chert would send: the run's caregiver summary, then the
-# link. The link is also copied to the clipboard, as a second fallback.
+# not apply. It sends two messages: the run's caregiver summary, then the link ON ITS OWN, so
+# Messages shows it as a tappable link (inside a sentence, a link this long arrived as plain text
+# that had to be copied). The link is also copied to the clipboard, as a second fallback.
 #
 #   tools/text_link_mac.sh --dry-run      print what would be sent for the newest escalation
 #   tools/text_link_mac.sh --send-now     send the newest link once, now
@@ -66,7 +67,7 @@ while not summary and time.monotonic() < end:
         pass
     if not summary:
         time.sleep(0.5)
-print((summary + "\n\n" if summary else "") + "Join the call now to see and talk to them: " + link)
+print((summary + "\n\n" if summary else "") + "Join the call now to see and talk to them: tap the link in the next message.")
 PY
 }
 
@@ -97,8 +98,9 @@ live_ok() { [ "$(envval ONSET_LIVE_ACTIONS)" = 1 ] || die "ONSET_LIVE_ACTIONS is
 send_current() {
   [ -s "$LINK" ] || { say "no caregiver link yet ($LINK)"; return 1; }
   pbcopy < "$LINK" 2>/dev/null
-  if send "$(compose)" >/dev/null 2>&1; then
-    say "sent to ${TO:0:2}…${TO: -2} and copied the link to the clipboard"
+  # The link alone in its own message: Messages makes a message that is just a URL a tappable link.
+  if send "$(compose)" >/dev/null 2>&1 && sleep 0.6 && send "$(tr -d '[:space:]' < "$LINK")" >/dev/null 2>&1; then
+    say "sent to ${TO:0:2}…${TO: -2} (the summary, then the link on its own) and copied the link to the clipboard"
   else
     say "SEND FAILED; the link is on the clipboard: paste it to the caregiver"
     return 1
@@ -110,7 +112,9 @@ case $MODE in
     [ -s "$LINK" ] || die "no caregiver link yet: it appears after an escalation"
     echo "to: $TO   (from this Mac's iMessage account)"
     echo "-----"
-    compose | sed -E 's/(#[^ ]{0,30})[^ ]*/\1…/'
+    compose
+    echo "----- (second message, the link alone)"
+    tr -d '[:space:]' < "$LINK" | sed -E 's/(#.{0,30}).*/\1…/'; echo
     ;;
   now)
     live_ok; send_current

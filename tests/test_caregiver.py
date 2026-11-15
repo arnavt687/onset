@@ -111,7 +111,9 @@ def test_invite_text():
     txt = caregiver.invite_text("Onset check-in for Alex. What Onset noticed: x.", "https://x.test/#w=1",
                                 caregiver_name="Sam Lee", patient_name="Alex Doe", talk=True)
     assert txt.startswith("Onset check-in for Alex")
-    assert "Sam, join the call now to see and talk to them: https://x.test/#w=1" in txt
+    assert "Sam, join the call now to see and talk to them." in txt
+    # the link on a line of its own, last, so the phone shows it as a tappable link
+    assert txt.endswith("\n\nhttps://x.test/#w=1")
     assert "told Alex to call 911" in txt
     assert caregiver.invite_text("S", None) == "S"
     assert caregiver.first_name("Demo patient") == "" and caregiver.first_name(" Alex  Doe ") == "Alex"

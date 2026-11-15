@@ -194,8 +194,8 @@ def invite_text(summary: str, link: str | None, *, caregiver_name: str = "", pat
     parts = [summary.strip()]
     if link:
         how = "see and talk to them" if talk else "see them"
-        parts.append(f"{hello}oin the call now to {how}: {link}\n"
-                     f"(The link works for a short time only. Onset has told {who} to call 911.)")
+        parts.append(f"{hello}oin the call now to {how}. The link works for a short time only. "
+                     f"Onset has told {who} to call 911.\n\n{link}")
     text = "\n\n".join(parts)
     return text if len(text) <= MAX_TEXT else summary.strip()[:MAX_TEXT]
 
